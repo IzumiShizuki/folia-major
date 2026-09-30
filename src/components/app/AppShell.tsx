@@ -90,7 +90,9 @@ const AppShell: React.FC<AppShellProps> = ({
 
     return (
         <div
-            className="fixed inset-0 w-full h-full flex flex-col overflow-hidden font-sans transition-colors duration-500"
+            className={(typeof window !== 'undefined' && (new URLSearchParams(window.location.search).get('embed') === '1' || document.getElementById('folia-embed-root') !== null))
+              ? 'absolute inset-0 w-full h-full flex flex-col overflow-hidden font-sans transition-colors duration-500'
+              : 'fixed inset-0 w-full h-full flex flex-col overflow-hidden font-sans transition-colors duration-500'}
             style={{
                 ...appStyle,
                 borderRadius: shouldApplyWindowRadius ? '18px' : undefined,

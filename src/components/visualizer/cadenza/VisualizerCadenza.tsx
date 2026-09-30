@@ -82,6 +82,8 @@ interface WordPlacement {
     wordGraphemeTimings: GraphemeTiming[];
     emphasis: number;
     isInterlude: boolean;
+    /** Wrapped lyrics retain pretext's centered line geometry instead of scattering words. */
+    preserveLineLayout: boolean;
 }
 
 interface AnimatedPlacementState {
@@ -797,7 +799,7 @@ const buildEmphasisMap = (
     return emphasisMap;
 };
 
-const buildWordPlacements = (
+export const buildWordPlacements = (
     lineData: Array<{
         line: LayoutLine;
         lineStart: number;
@@ -820,7 +822,19 @@ const buildWordPlacements = (
         : animationIntensity === 'calm'
             ? 1
             : 1.01;
-    const emphasisMap = buildEmphasisMap(lineData, isInterlude);
+    // Pretext has already produced centered line geometry. Promoting a single
+    // glyph to the hero position makes longer CJK text scatter beyond the
+    // embedded viewport even when it still fits on one line, so preserve both
+    // wrapped lyrics and substantial CJK lines as one centered composition.
+    const primaryText = lineData
+        .flatMap(lineView => lineView.fragments)
+        .filter(fragment => fragment.isPrimaryFragment)
+        .map(fragment => fragment.text)
+        .join('')
+        .replace(/\s+/g, '');
+    const preserveWrappedLineLayout = lineData.length > 1
+        || (isCJK(primaryText) && splitGraphemes(primaryText).length >= 6);
+    const emphasisMap = preserveWrappedLineLayout ? new Map<number, number>() : buildEmphasisMap(lineData, isInterlude);
     const heroWordIndex = [...emphasisMap.entries()]
         .sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
@@ -1006,6 +1020,11 @@ const buildWordPlacements = (
             ? Math.atan2(preferredY, preferredX + width / 2)
             : 0;
 
+        if (preserveWrappedLineLayout) {
+            pushPlacementRect(chosenX, chosenY, collisionWidth, collisionHeight, padding);
+            found = true;
+        }
+
         for (let radius = 0; radius <= maxRadius && !found; radius += step) {
             const sampleCount = radius === 0
                 ? 1
@@ -1068,7 +1087,9 @@ const buildWordPlacements = (
         const outwardLength = Math.max(Math.hypot(outwardX, outwardY), 1);
         const outwardUnitX = outwardX / outwardLength;
         const outwardUnitY = outwardY / outwardLength;
-        const driftAmount = isInterlude
+        const driftAmount = preserveWrappedLineLayout
+            ? 0
+            : isInterlude
             ? 3 + random(6) * 3
             : emphasis > 1
                 ? 4 + random(6) * 4
@@ -1101,6 +1122,7 @@ const buildWordPlacements = (
             wordGraphemeTimings: fragment.wordGraphemeTimings,
             emphasis,
             isInterlude,
+            preserveLineLayout: preserveWrappedLineLayout,
         });
     });
 
@@ -1492,6 +1514,7 @@ const VisualizerCadenza: React.FC<VisualizerProps> = (props) => {
             placements.forEach((placement, placementIndex) => {
                 const status = getWordStatus(time, lineTiming, placement.word);
                 const progress = getWordProgress(time, wordRevealMode, placement.word);
+                const preserveLineLayout = placement.preserveLineLayout;
                 const passedAlpha = isInstantWordReveal
                     ? 0
                     : theme.animationIntensity === 'chaotic'
@@ -1499,9 +1522,12 @@ const VisualizerCadenza: React.FC<VisualizerProps> = (props) => {
                         : 0.82;
                 const pulse = status === 'active'
                     && !isInstantWordReveal
+                    && !preserveLineLayout
                     ? 1 + Math.sin(time * ACTIVE_PULSE_FREQUENCY + placement.word.startTime * 5) * 0.04 * tuning.motionAmount
                     : 1;
-                const passedDriftProgress = isInstantWordReveal ? 0 : getClassicPassedDrift(time, placement.word);
+                const passedDriftProgress = isInstantWordReveal || preserveLineLayout
+                    ? 0
+                    : getClassicPassedDrift(time, placement.word);
                 const targetScale = status === 'waiting'
                     ? isInstantWordReveal
                         ? placement.scale
@@ -1509,7 +1535,7 @@ const VisualizerCadenza: React.FC<VisualizerProps> = (props) => {
                     : status === 'active'
                         ? isInstantWordReveal
                             ? placement.scale
-                            : placement.scale * 1.3 * pulse
+                            : placement.scale * (preserveLineLayout ? 1 : 1.3 * pulse)
                         : placement.scale;
                 const targetRotation = status === 'waiting'
                     ? isInstantWordReveal
@@ -1520,8 +1546,8 @@ const VisualizerCadenza: React.FC<VisualizerProps> = (props) => {
                             ? placement.rotate
                             : placement.rotate + placement.passedRotate * passedDriftProgress
                         : placement.rotate;
-                const localFloatX = Math.sin(time * 1.2 + placementIndex * 0.6) * motionEnergy * 4;
-                const localFloatY = Math.cos(time * 1.5 + placementIndex * 0.4) * motionEnergy * 2.5;
+                const localFloatX = preserveLineLayout ? 0 : Math.sin(time * 1.2 + placementIndex * 0.6) * motionEnergy * 4;
+                const localFloatY = preserveLineLayout ? 0 : Math.cos(time * 1.5 + placementIndex * 0.4) * motionEnergy * 2.5;
                 const passedDriftX = status === 'passed' ? placement.passedDriftX * passedDriftProgress : 0;
                 const passedDriftY = status === 'passed' ? placement.passedDriftY * passedDriftProgress : 0;
                 const targetX = width / 2 + placement.x + localFloatX + passedDriftX + (status === 'waiting' ? placement.entryOffsetX : 0);

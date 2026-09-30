@@ -22,9 +22,4 @@ installMemorySampleFeed();
 // if (import.meta.env.DEV) installCoverSizeAudit();
 installGlobalVisualizerFrameRateLimiter();
 
-// Shizuki-site external control bridge (cookie sync + play-track + status).
-// Installed before the app bundle so the iframe can be driven by the parent page.
-import { installShizukiExternalBridge } from './shizukiExternalBridge';
-installShizukiExternalBridge();
-
 void import('./bootstrap');

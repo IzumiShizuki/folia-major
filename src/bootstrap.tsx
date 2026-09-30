@@ -28,7 +28,12 @@ import './stores/useMotionSettingsStore';
 // clients register their entries we restore the saved selections
 // (src/mods/folium/missingEntries.ts, which also re-runs on every mod reload).
 
-const rootElement = document.getElementById('root');
+// Shizuki embed mode mounts Folia into the parent's player container and skips
+// standalone-only startup work so the player surface can switch in immediately.
+const searchParams = new URLSearchParams(window.location.search);
+const embedRoot = document.getElementById('folia-embed-root');
+const isEmbedMode = searchParams.get('embed') === '1' || embedRoot !== null;
+const rootElement = embedRoot || document.getElementById('root');
 if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
@@ -43,7 +48,15 @@ const isRemoteControl = isRemoteControlSurface;
 // also has the Electron bridge, but mod state pushes only reach the main
 // window, so a client activated there would never be torn down.
 const isMainApp = isMainAppSurface;
-const renderApp = () => root.render(
+const renderApp = () => {
+  if (isEmbedMode) {
+    // Force the player-only surface for the embedded parent player.
+    void import('./stores/useAppViewStore')
+      .then(({ useAppViewStore }) => useAppViewStore.getState().setView('player'))
+      .catch(() => {});
+  }
+
+  root.render(
     <React.StrictMode>
       <AppSplashGate>
         {isNowPlayingObsSource
@@ -58,16 +71,23 @@ const renderApp = () => root.render(
       </AppSplashGate>
     </React.StrictMode>
   );
-
-const bootFolium = async () => {
-    if (!isMainApp) return;
-    installFoliumCommandPaletteSync();
-    installFoliumHostEvents();
-    await initFoliumClients();
-    restoreSavedFoliumSelections();
 };
 
-void bootFolium()
+const bootFolium = async () => {
+  if (!isMainApp || isEmbedMode) return;
+  installFoliumCommandPaletteSync();
+  installFoliumHostEvents();
+  await initFoliumClients();
+  restoreSavedFoliumSelections();
+};
+
+if (isEmbedMode) {
+  // Avoid loading standalone Folium clients and local-cover workers before the
+  // parent can switch the embedded player into view.
+  void renderApp();
+} else {
+  void bootFolium()
     .finally(() => {
-        void initializeLocalCoverRuntime().finally(renderApp);
+      void initializeLocalCoverRuntime().finally(renderApp);
     });
+}
