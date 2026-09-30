@@ -10,10 +10,11 @@
 import { PlayerState, type LyricData, type SongResult } from './types';
 import { usePlaybackStore } from './stores/usePlaybackStore';
 import { useTypographySettingsStore } from './stores/useTypographySettingsStore';
-import { lyricCurrentTime } from './stores/motionSignals';
+import { currentTime, lyricCurrentTime } from './stores/motionSignals';
 import { findLatestActiveLineIndex } from './utils/appPlaybackHelpers';
+import { projectEmbeddedPlaybackClock } from './services/shizukiEmbeddedPlayback';
 
-const COOKIE_STORAGE_KEY = 'netease_cookie';
+const COOKIE_STORAGE_KEYS = ['online_provider:netease:cookie', 'netease_cookie'];
 const EMBED_AUDIO_SELECTOR = '#folia-embed-root audio';
 
 type UnknownRecord = Record<string, unknown>;
@@ -36,8 +37,9 @@ let followClockFrame = 0;
 let followClockPositionSec = 0;
 let followClockStartedAt = 0;
 let followClockPlaying = false;
-let suppressPlaybackCommandsUntil = 0;
+let applyingFollowSession = false;
 let latestFollowSessionVersion = -1;
+let latestFollowLyricsFingerprint = '';
 let audioLockInstalled = false;
 let progressSeekBridgeInstalled = false;
 let navigationBridgeInstalled = false;
@@ -45,18 +47,35 @@ let lastFollowSeekPositionSec = -1;
 let lastFollowSeekAt = 0;
 let activeProgressInput: HTMLInputElement | null = null;
 let activeProgressPointerId: number | null = null;
-let pendingNavigationAction: 'next' | 'previous' | null = null;
-let pendingNavigationActionAt = 0;
 let cookieBridgeInstalled = false;
 let lastReportedCookie = '';
 let embedWallpaperStyleInstalled = false;
 let embedWallpaperObserver: MutationObserver | null = null;
+let embedLyricColorStyleInstalled = false;
 let embedLyricSizingInstalled = false;
 let embedLyricBaseScale: number | null = null;
 let embedLyricAppliedScale: number | null = null;
+let embedLyricSizingAuditFrame = 0;
+let embedLyricSizingAuditFrames = 0;
+let embedLyricGeometryLineKey = '';
+let embedLyricGeometrySnapshot: { center: number; width: number } | null = null;
+let embedLyricGeometryStableFrames = 0;
+let embedLyricGeometryCommittedLineKey = '';
+let embedLyricMeasuredRootWidth = 0;
+let embedLyricHorizontalCorrection: {
+  element: HTMLElement;
+  lineKey: string;
+  originalInlineTranslate: string;
+  appliedOffset: number;
+} | null = null;
 
-const MIN_EMBED_LYRIC_SCALE = 0.34;
-const EMBED_LYRIC_CONTENT_WIDTH_RATIO = 0.72;
+const EMBED_LYRIC_HORIZONTAL_GUTTER = 32;
+const EMBED_LYRIC_PRIMARY_FONT_SCALE = 2;
+const EMBED_LYRIC_ACTIVE_WORD_SELECTOR = '[data-shizuki-folia-active-lyric-word]';
+const EMBED_LYRIC_LINE_SELECTOR = '[data-shizuki-folia-lyric-line]';
+const EMBED_LYRIC_STABLE_GEOMETRY_FRAMES = 4;
+const EMBED_LYRIC_STABILITY_RATIO = 0.015;
+const EMBED_LYRIC_ACTIVE_WORD_TRANSFORM_SAFETY = 1.6;
 
 function cssBackgroundImage(url: string): string {
   const normalized = String(url || '').trim();
@@ -96,7 +115,8 @@ function installEmbedWallpaperStyle(): void {
   background-color: transparent !important;
 }
 #folia-embed-root[data-shizuki-wallpaper='active']:fullscreen::before,
-.folia-embed-pane:fullscreen #folia-embed-root[data-shizuki-wallpaper='active']::before {
+.folia-embed-pane:fullscreen #folia-embed-root[data-shizuki-wallpaper='active']::before,
+.folia-embed-pane[data-folia-expanded='true'] #folia-embed-root[data-shizuki-wallpaper='active']::before {
   background-size: cover;
 }
 `;
@@ -152,31 +172,300 @@ function observeEmbeddedDefaultBackground(root: HTMLElement): void {
  * often one unbreakable text segment, so fit that content as well as the
  * workspace itself instead of relying on viewport width alone.
  */
-function resolveEmbedLyricContentScale(root: HTMLElement): number {
-  if (document.fullscreenElement) return 1;
+function getEmbedLyricWeightedGraphemeWidth(text: string): number {
+  return Array.from(text).reduce((width, grapheme) => {
+    if (/\s/u.test(grapheme)) return width + 0.34;
+    if (/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af\uff00-\uffef]/u.test(grapheme)) return width + 1;
+    if (/[A-Z0-9]/u.test(grapheme)) return width + 0.7;
+    if (/[a-z]/u.test(grapheme)) return width + 0.58;
+    return width + 0.48;
+  }, 0);
+}
+
+function getEmbedLyricAvailableWidth(root: HTMLElement): number {
+  return Math.max(1, root.clientWidth - EMBED_LYRIC_HORIZONTAL_GUTTER * 2);
+}
+
+function isEmbedLyricElementVisible(element: HTMLElement, root: HTMLElement): boolean {
+  let current: HTMLElement | null = element;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    if (
+      style.display === 'none'
+      || style.visibility === 'hidden'
+      || Number.parseFloat(style.opacity || '1') <= 0.01
+    ) {
+      return false;
+    }
+    if (current === root) return true;
+    current = current.parentElement;
+  }
+  return false;
+}
+
+function getEmbedActiveLyricScope(root: HTMLElement, activeLine: { startTime: number }): HTMLElement | null {
+  const lineKey = String(activeLine.startTime);
+  return Array.from(root.querySelectorAll<HTMLElement>(EMBED_LYRIC_LINE_SELECTOR))
+    .find((element) => element.dataset.shizukiFoliaLyricLine === lineKey) ?? null;
+}
+
+function measureEmbedActiveLyricBounds(root: HTMLElement, activeLine: { startTime: number }): {
+  left: number;
+  right: number;
+  width: number;
+  layoutWidth: number;
+} | null {
+  const scope = getEmbedActiveLyricScope(root, activeLine);
+  if (!scope) return null;
+  let left = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let layoutWidth = 0;
+
+  scope.querySelectorAll<HTMLElement>(EMBED_LYRIC_ACTIVE_WORD_SELECTOR).forEach((element) => {
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden') return;
+    const marginLeft = Number.parseFloat(style.marginLeft || '0') || 0;
+    const marginRight = Number.parseFloat(style.marginRight || '0') || 0;
+    layoutWidth += Math.max(0, element.offsetWidth) + marginLeft + marginRight;
+    if (!isEmbedLyricElementVisible(element, root)) return;
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    left = Math.min(left, rect.left);
+    right = Math.max(right, rect.right);
+  });
+
+  if (!Number.isFinite(left) || !Number.isFinite(right)) {
+    return layoutWidth > 0 ? { left: 0, right: 0, width: 0, layoutWidth } : null;
+  }
+  return { left, right, width: Math.max(0, right - left), layoutWidth };
+}
+
+function isEmbedLyricGeometryStable(
+  activeLine: { startTime: number },
+  bounds: { left: number; right: number; width: number },
+): boolean {
+  const lineKey = String(activeLine.startTime);
+  const center = (bounds.left + bounds.right) / 2;
+  if (embedLyricGeometryLineKey !== lineKey) {
+    embedLyricGeometryLineKey = lineKey;
+    embedLyricGeometrySnapshot = { center, width: bounds.width };
+    embedLyricGeometryStableFrames = 0;
+    embedLyricGeometryCommittedLineKey = '';
+    return false;
+  }
+  if (embedLyricGeometryCommittedLineKey === lineKey) return true;
+
+  const previous = embedLyricGeometrySnapshot;
+  embedLyricGeometrySnapshot = { center, width: bounds.width };
+  if (!previous) return false;
+  const tolerance = Math.max(
+    1.5,
+    Math.max(previous.width, bounds.width) * EMBED_LYRIC_STABILITY_RATIO,
+  );
+  const stable = Math.abs(previous.center - center) <= tolerance
+    && Math.abs(previous.width - bounds.width) <= tolerance;
+  embedLyricGeometryStableFrames = stable ? embedLyricGeometryStableFrames + 1 : 0;
+  if (embedLyricGeometryStableFrames < EMBED_LYRIC_STABLE_GEOMETRY_FRAMES) return false;
+  embedLyricGeometryCommittedLineKey = lineKey;
+  return true;
+}
+
+function resetEmbedLyricGeometry(): void {
+  embedLyricGeometryLineKey = '';
+  embedLyricGeometrySnapshot = null;
+  embedLyricGeometryStableFrames = 0;
+  embedLyricGeometryCommittedLineKey = '';
+}
+
+function restoreEmbedLyricHorizontalCorrection(): void {
+  const correction = embedLyricHorizontalCorrection;
+  if (!correction) return;
+  if (correction.originalInlineTranslate) {
+    correction.element.style.setProperty('translate', correction.originalInlineTranslate);
+  } else {
+    correction.element.style.removeProperty('translate');
+  }
+  delete correction.element.dataset.shizukiFoliaLyricOffset;
+  embedLyricHorizontalCorrection = null;
+}
+
+function resolveEmbedLyricHorizontalOffset(
+  bounds: { left: number; right: number },
+  safeLeft: number,
+  safeRight: number,
+): number {
+  const minimumOffset = safeLeft - bounds.left;
+  const maximumOffset = safeRight - bounds.right;
+  if (minimumOffset <= maximumOffset) {
+    return Math.min(maximumOffset, Math.max(minimumOffset, 0));
+  }
+  return ((safeLeft + safeRight) - (bounds.left + bounds.right)) / 2;
+}
+
+function syncEmbedLyricHorizontalCorrection(
+  root: HTMLElement,
+  activeLine: { startTime: number },
+): void {
+  const lineKey = String(activeLine.startTime);
+  if (embedLyricGeometryCommittedLineKey !== lineKey) return;
+
+  const scope = getEmbedActiveLyricScope(root, activeLine);
+  if (!scope) {
+    restoreEmbedLyricHorizontalCorrection();
+    resetEmbedLyricGeometry();
+    return;
+  }
+  if (
+    embedLyricHorizontalCorrection
+    && (
+      embedLyricHorizontalCorrection.lineKey !== lineKey
+      || embedLyricHorizontalCorrection.element !== scope
+      || !embedLyricHorizontalCorrection.element.isConnected
+    )
+  ) {
+    restoreEmbedLyricHorizontalCorrection();
+    resetEmbedLyricGeometry();
+    return;
+  }
+
+  const renderedBounds = measureEmbedActiveLyricBounds(root, activeLine);
+  if (!renderedBounds || renderedBounds.width <= 0) return;
+  const appliedOffset = embedLyricHorizontalCorrection?.appliedOffset ?? 0;
+  const uncorrectedBounds = {
+    left: renderedBounds.left - appliedOffset,
+    right: renderedBounds.right - appliedOffset,
+  };
+  const rootRect = root.getBoundingClientRect();
+  const safeLeft = rootRect.left + EMBED_LYRIC_HORIZONTAL_GUTTER;
+  const safeRight = rootRect.right - EMBED_LYRIC_HORIZONTAL_GUTTER;
+  const maximumCorrection = Math.max(root.clientWidth, EMBED_LYRIC_HORIZONTAL_GUTTER * 2);
+  const resolvedOffset = resolveEmbedLyricHorizontalOffset(uncorrectedBounds, safeLeft, safeRight);
+  const nextOffset = Math.max(-maximumCorrection, Math.min(maximumCorrection, resolvedOffset));
+  const normalizedOffset = Math.abs(nextOffset) < 0.5 ? 0 : nextOffset;
+
+  if (normalizedOffset === 0) {
+    restoreEmbedLyricHorizontalCorrection();
+    return;
+  }
+  if (
+    embedLyricHorizontalCorrection
+    && Math.abs(embedLyricHorizontalCorrection.appliedOffset - normalizedOffset) < 0.5
+  ) {
+    return;
+  }
+  if (!embedLyricHorizontalCorrection) {
+    embedLyricHorizontalCorrection = {
+      element: scope,
+      lineKey,
+      originalInlineTranslate: scope.style.getPropertyValue('translate'),
+      appliedOffset: 0,
+    };
+  }
+  embedLyricHorizontalCorrection.appliedOffset = normalizedOffset;
+  scope.dataset.shizukiFoliaLyricOffset = normalizedOffset.toFixed(3);
+  // CSS translate is independent from Framer Motion's transform property.
+  scope.style.setProperty('translate', `${normalizedOffset.toFixed(3)}px 0`);
+}
+
+function resolveEmbedLyricContentScale(
+  root: HTMLElement,
+  preferredScale: number,
+  currentScale: number,
+): number {
   const state = usePlaybackStore.getState();
   const lines = state.lyrics?.lines ?? [];
   const activeLine = lines[state.currentLineIndex] ?? null;
   const text = String(activeLine?.fullText || '').trim();
   if (!text) return 1;
 
-  const longestUnbrokenSpan = text
-    .split(/\s+/)
-    .reduce((longest, segment) => Math.max(longest, Array.from(segment).length), 0);
-  if (longestUnbrokenSpan < 2) return 1;
+  const weightedGraphemeWidth = getEmbedLyricWeightedGraphemeWidth(text);
+  if (weightedGraphemeWidth < 2) return 1;
 
-  // Cadenza uses a 0.086 x viewport font baseline and centers a lyric region
-  // around 72% of its available width. Keeping the estimate here makes the
-  // bridge work for its canvas text as well as DOM-based visualizers.
-  const baseFontPx = Math.min(94, Math.max(34, root.clientWidth * 0.086));
-  const availableTextWidth = Math.min(root.clientWidth * EMBED_LYRIC_CONTENT_WIDTH_RATIO, 820);
-  const estimatedLineWidth = longestUnbrokenSpan * baseFontPx * 1.05;
+  const availableTextWidth = getEmbedLyricAvailableWidth(root);
+  const safePreferredScale = Math.max(Number(preferredScale) || 1, 0.01);
+  const safeCurrentScale = Math.max(Number(currentScale) || safePreferredScale, 0.01);
+  const renderedBounds = measureEmbedActiveLyricBounds(root, activeLine);
+  if (renderedBounds) {
+    const layoutScale = renderedBounds.layoutWidth > 0
+      ? Math.min(
+        1,
+        (safeCurrentScale * availableTextWidth)
+          / (renderedBounds.layoutWidth * EMBED_LYRIC_ACTIVE_WORD_TRANSFORM_SAFETY * safePreferredScale),
+      )
+      : 1;
+    if (
+      renderedBounds.width <= 0
+      || !isEmbedLyricGeometryStable(activeLine, renderedBounds)
+    ) {
+      // Framer Motion first exposes the new line at its waiting pose, then
+      // springs every word into place. offsetWidth is transform-independent,
+      // so use it until several consecutive frames agree on the final bounds.
+      return Math.max(0.01, layoutScale);
+    }
+    const maximumGrowth = safePreferredScale / safeCurrentScale;
+    const widthScale = availableTextWidth / renderedBounds.width;
+    const measuredScale = Math.max(
+      0.01,
+      Math.min(widthScale, maximumGrowth),
+    );
+    // DOMRects include the active-word transforms and random line placement.
+    // Convert that measured contraction back to the preferred-scale basis.
+    const visualScale = Math.min(
+      1,
+      (safeCurrentScale * measuredScale) / safePreferredScale,
+    );
+    // Word-level highlight transforms keep moving after the line container has
+    // settled. They may briefly squeeze the measured half-width near one edge;
+    // never let that animated pose undercut the transform-independent layout
+    // width that already reserves emphasis headroom for the complete line.
+    return Math.max(layoutScale, visualScale);
+  }
+
+  // Before Cadenza has mounted its word nodes, match its two-times font tuning
+  // instead of the unscaled 94px viewport baseline used by the old estimate.
+  const baseFontPx = Math.min(
+    94 * EMBED_LYRIC_PRIMARY_FONT_SCALE,
+    Math.max(34 * EMBED_LYRIC_PRIMARY_FONT_SCALE, root.clientWidth * 0.086 * EMBED_LYRIC_PRIMARY_FONT_SCALE),
+  );
+  const estimatedLineWidth = weightedGraphemeWidth
+    * baseFontPx
+    * safePreferredScale
+    * EMBED_LYRIC_ACTIVE_WORD_TRANSFORM_SAFETY;
   return Math.min(1, availableTextWidth / Math.max(estimatedLineWidth, 1));
 }
 
 function syncEmbedLyricSizing(): void {
   const root = document.getElementById('folia-embed-root');
-  if (!root || root.clientWidth < 240 || typeof window === 'undefined') return;
+  if (!root || root.clientWidth < 240 || typeof window === 'undefined') {
+    restoreEmbedLyricHorizontalCorrection();
+    resetEmbedLyricGeometry();
+    return;
+  }
+  if (Math.abs(embedLyricMeasuredRootWidth - root.clientWidth) > 1) {
+    embedLyricMeasuredRootWidth = root.clientWidth;
+    restoreEmbedLyricHorizontalCorrection();
+    resetEmbedLyricGeometry();
+  }
+  const playback = usePlaybackStore.getState();
+  const activeLine = playback.lyrics?.lines?.[playback.currentLineIndex] ?? null;
+  if (!activeLine) {
+    restoreEmbedLyricHorizontalCorrection();
+    resetEmbedLyricGeometry();
+    return;
+  }
+  const activeLineKey = String(activeLine.startTime);
+  const activeScope = getEmbedActiveLyricScope(root, activeLine);
+  if (
+    embedLyricHorizontalCorrection
+    && (
+      embedLyricHorizontalCorrection.lineKey !== activeLineKey
+      || embedLyricHorizontalCorrection.element !== activeScope
+      || !embedLyricHorizontalCorrection.element.isConnected
+    )
+  ) {
+    restoreEmbedLyricHorizontalCorrection();
+    resetEmbedLyricGeometry();
+  }
   const settings = useTypographySettingsStore.getState();
   const currentScale = Number(settings.lyricsFontScale) || 1;
   if (embedLyricBaseScale === null || (
@@ -188,15 +477,37 @@ function syncEmbedLyricSizing(): void {
   const viewportWidth = Math.max(1, window.innerWidth || root.clientWidth);
   const widthRatio = Math.min(1, Math.max(0, (root.clientWidth / viewportWidth) * 1.15));
   const preferredScale = embedLyricBaseScale ?? 1;
-  const contentScale = resolveEmbedLyricContentScale(root);
+  const contentScale = resolveEmbedLyricContentScale(root, preferredScale, currentScale);
   const nextScale = Math.max(
-    MIN_EMBED_LYRIC_SCALE,
+    0.01,
     Math.min(preferredScale, preferredScale * widthRatio, preferredScale * contentScale),
   );
-  if (Math.abs(currentScale - nextScale) < 0.005) return;
+  if (Math.abs(currentScale - nextScale) < 0.005) {
+    syncEmbedLyricHorizontalCorrection(root, activeLine);
+    return;
+  }
+  restoreEmbedLyricHorizontalCorrection();
+  resetEmbedLyricGeometry();
   embedLyricAppliedScale = nextScale;
   // setState deliberately avoids persisting an embed-only presentation value.
   useTypographySettingsStore.setState({ lyricsFontScale: nextScale });
+}
+
+function scheduleEmbedLyricSizingAudit(frameCount = 90): void {
+  embedLyricSizingAuditFrames = Math.max(
+    embedLyricSizingAuditFrames,
+    Math.max(1, Math.floor(frameCount)),
+  );
+  if (embedLyricSizingAuditFrame) return;
+  const run = () => {
+    embedLyricSizingAuditFrame = 0;
+    syncEmbedLyricSizing();
+    embedLyricSizingAuditFrames -= 1;
+    if (embedLyricSizingAuditFrames > 0) {
+      embedLyricSizingAuditFrame = window.requestAnimationFrame(run);
+    }
+  };
+  embedLyricSizingAuditFrame = window.requestAnimationFrame(run);
 }
 
 function installEmbedLyricSizing(): void {
@@ -204,11 +515,10 @@ function installEmbedLyricSizing(): void {
   embedLyricSizingInstalled = true;
   const root = document.getElementById('folia-embed-root');
   if (root && typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(syncEmbedLyricSizing).observe(root);
+    new ResizeObserver(() => scheduleEmbedLyricSizingAudit()).observe(root);
   }
-  window.addEventListener('resize', syncEmbedLyricSizing);
-  document.addEventListener('fullscreenchange', syncEmbedLyricSizing);
-  window.requestAnimationFrame(syncEmbedLyricSizing);
+  window.addEventListener('resize', () => scheduleEmbedLyricSizingAudit());
+  scheduleEmbedLyricSizingAudit();
 }
 
 function readFollowSong(rawTrack: UnknownRecord | null | undefined): SongResult | null {
@@ -322,6 +632,23 @@ function buildFollowLyrics(rawLyrics: unknown, song: SongResult | null, duration
   };
 }
 
+function buildFollowLyricsFingerprint(
+  rawLyrics: unknown,
+  song: SongResult | null,
+  durationMs: number,
+): string {
+  const artists = Array.isArray(song?.artists)
+    ? song.artists.map((artist) => String(artist?.name || ''))
+    : [];
+  return JSON.stringify([
+    Number(song?.id || 0),
+    String(song?.name || ''),
+    artists,
+    Math.max(0, Number(durationMs) || 0),
+    Array.isArray(rawLyrics) ? rawLyrics : [],
+  ]);
+}
+
 function readFollowSession(raw: unknown): FollowSession | null {
   if (!raw || typeof raw !== 'object') return null;
   const data = raw as UnknownRecord;
@@ -348,14 +675,15 @@ function readFollowSession(raw: unknown): FollowSession | null {
 function writeFollowClock(positionSec: number): void {
   const safePosition = Math.max(0, Number(positionSec) || 0);
   try {
-    const clock = (window as unknown as { __folia_current_time?: { set(v: number): void } }).__folia_current_time;
-    clock?.set(safePosition);
-    lyricCurrentTime.set(safePosition);
+    projectEmbeddedPlaybackClock(safePosition, currentTime, lyricCurrentTime);
     const store = usePlaybackStore.getState();
     const lines = store.lyrics?.lines || [];
     if (lines.length) {
       const index = findLatestActiveLineIndex(lines, safePosition);
-      if (index !== store.currentLineIndex) store.setCurrentLineIndex(index);
+      if (index !== store.currentLineIndex) {
+        store.setCurrentLineIndex(index);
+        scheduleEmbedLyricSizingAudit();
+      }
     }
   } catch {
     // A failed visual projection must never affect the owner audio element.
@@ -409,7 +737,6 @@ function installEmbeddedAudioLock(): void {
     if (!(audio instanceof HTMLAudioElement)) return;
     const root = document.getElementById('folia-embed-root');
     if (!root?.contains(audio)) return;
-    suppressPlaybackCommandsUntil = performance.now() + 500;
     try {
       audio.pause();
       audio.removeAttribute('src');
@@ -418,11 +745,6 @@ function installEmbeddedAudioLock(): void {
     } catch {
       // The main site remains audible even when an upstream media call fails.
     }
-    window.setTimeout(() => {
-      if (!followPlaybackActive) return;
-      suppressPlaybackCommandsUntil = performance.now() + 150;
-      usePlaybackStore.getState().setPlayerState(followClockPlaying ? PlayerState.PLAYING : PlayerState.PAUSED);
-    }, 0);
   }, true);
 }
 
@@ -542,17 +864,13 @@ function installEmbeddedNavigationBridge(): void {
     if (!followPlaybackActive) return;
     const action = readNavigationAction(event.target);
     if (!action) return;
-    pendingNavigationAction = action;
-    pendingNavigationActionAt = performance.now();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    relayEmbeddedNavigation(action);
   }, true);
 }
 
 function relayEmbeddedNavigation(action: 'next' | 'previous'): void {
-  suppressPlaybackCommandsUntil = performance.now() + 750;
-  lockEmbeddedAudio();
-  const store = usePlaybackStore.getState();
-  store.setAudioSrc(null);
-  store.setPlayerState(PlayerState.PAUSED);
   postToParent({ type: 'shizuki:playback-command', action });
 }
 
@@ -560,25 +878,31 @@ function applyFollowSession(session: FollowSession): void {
   if (session.version < latestFollowSessionVersion) return;
   latestFollowSessionVersion = session.version;
   followPlaybackActive = true;
-  suppressPlaybackCommandsUntil = performance.now() + 900;
+  applyingFollowSession = true;
 
   const store = usePlaybackStore.getState();
   const song = readFollowSong(session.track);
   const queue = readFollowQueue(session.queue);
-  const lyrics = buildFollowLyrics(session.lyrics, song, session.durationMs);
-  lockEmbeddedAudio();
-  store.setAudioSrc(null);
-  store.setCurrentSong(song);
-  store.setPlayQueue(queue.length ? queue : (song ? [song] : []));
-  store.setCachedCoverUrl(String(song?.album?.coverUrl || ''));
-  store.setDuration(Math.max(0, Number(session.durationMs || 0) / 1000));
-  store.setLyricsState(lyrics);
-  store.setCurrentLineIndex(session.lyricIndex);
-  store.setPlayerState(session.playing ? PlayerState.PLAYING : PlayerState.PAUSED);
+  const lyricsFingerprint = buildFollowLyricsFingerprint(session.lyrics, song, session.durationMs);
+  const lyricsChanged = lyricsFingerprint !== latestFollowLyricsFingerprint;
   try {
+    lockEmbeddedAudio();
+    store.setAudioSrc(null);
+    store.setCurrentSong(song);
+    store.setPlayQueue(queue.length ? queue : (song ? [song] : []));
+    store.setCachedCoverUrl(String(song?.album?.coverUrl || ''));
+    store.setDuration(Math.max(0, Number(session.durationMs || 0) / 1000));
+    if (lyricsChanged) {
+      const lyrics = buildFollowLyrics(session.lyrics, song, session.durationMs);
+      latestFollowLyricsFingerprint = lyricsFingerprint;
+      store.setLyricsState(lyrics);
+    }
+    store.setPlayerState(session.playing ? PlayerState.PLAYING : PlayerState.PAUSED);
     (window as unknown as { __shizukiPlaybackSession?: FollowSession }).__shizukiPlaybackSession = session;
   } catch {
     // The store remains sufficient if diagnostics cannot be attached to window.
+  } finally {
+    applyingFollowSession = false;
   }
   syncFollowClock(session.positionMs, session.playing);
   syncEmbedLyricSizing();
@@ -588,9 +912,9 @@ function stopFollowPlayback(): void {
   followPlaybackActive = false;
   followClockPlaying = false;
   latestFollowSessionVersion = -1;
+  latestFollowLyricsFingerprint = '';
   if (followClockFrame) window.cancelAnimationFrame(followClockFrame);
   followClockFrame = 0;
-  suppressPlaybackCommandsUntil = performance.now() + 300;
   lockEmbeddedAudio();
   try {
     const store = usePlaybackStore.getState();
@@ -603,7 +927,11 @@ function stopFollowPlayback(): void {
 
 function readCookieFromStorage(): string {
   try {
-    return window.localStorage.getItem(COOKIE_STORAGE_KEY) || '';
+    for (const key of COOKIE_STORAGE_KEYS) {
+      const cookie = window.localStorage.getItem(key);
+      if (cookie) return cookie;
+    }
+    return '';
   } catch {
     return '';
   }
@@ -612,7 +940,7 @@ function readCookieFromStorage(): string {
 function writeCookieToStorage(cookie: string): void {
   if (!cookie) return;
   try {
-    window.localStorage.setItem(COOKIE_STORAGE_KEY, cookie);
+    for (const key of COOKIE_STORAGE_KEYS) window.localStorage.setItem(key, cookie);
     // The parent already owns this value when it sends a sync request. Record
     // it so the change watcher does not echo the same credential back.
     lastReportedCookie = cookie;
@@ -647,14 +975,9 @@ function installCookieBridge(): void {
   cookieBridgeInstalled = true;
   lastReportedCookie = readCookieFromStorage();
   window.addEventListener('storage', (event) => {
-    if (event.key === COOKIE_STORAGE_KEY) reportCookieIfChanged();
+    if (event.key && COOKIE_STORAGE_KEYS.includes(event.key)) reportCookieIfChanged();
   });
   window.setInterval(reportCookieIfChanged, 1500);
-}
-
-function readSongId(song: unknown): number {
-  const id = Number((song as { id?: unknown } | null)?.id || 0);
-  return Number.isFinite(id) && id > 0 ? id : 0;
 }
 
 function snapshotStatus(): UnknownRecord {
@@ -682,12 +1005,12 @@ function snapshotStatus(): UnknownRecord {
   };
 }
 
+function readSongId(song: unknown): number {
+  const id = Number((song as { id?: unknown } | null)?.id || 0);
+  return Number.isFinite(id) && id > 0 ? id : 0;
+}
+
 function forwardTrackIntent(rawTrack: UnknownRecord, positionMs = 0, playing = true): void {
-  suppressPlaybackCommandsUntil = performance.now() + 600;
-  lockEmbeddedAudio();
-  const store = usePlaybackStore.getState();
-  store.setAudioSrc(null);
-  store.setPlayerState(PlayerState.PAUSED);
   postToParent({ type: 'shizuki:playback-intent', track: rawTrack, positionMs, playing });
 }
 
@@ -733,7 +1056,6 @@ function handleMessage(event: MessageEvent): void {
   }
   if (type === 'shizuki:activate-playback-bridge') {
     followPlaybackActive = true;
-    suppressPlaybackCommandsUntil = performance.now() + 300;
     lockEmbeddedAudio();
     usePlaybackStore.getState().setAudioSrc(null);
     return;
@@ -745,9 +1067,13 @@ function handleMessage(event: MessageEvent): void {
   if (type === 'shizuki:sync-clock') {
     if (!followPlaybackActive) return;
     const playing = Boolean(data.playing);
-    suppressPlaybackCommandsUntil = performance.now() + 120;
-    usePlaybackStore.getState().setPlayerState(playing ? PlayerState.PLAYING : PlayerState.PAUSED);
-    syncFollowClock(Number(data.positionMs || 0), playing);
+    applyingFollowSession = true;
+    try {
+      usePlaybackStore.getState().setPlayerState(playing ? PlayerState.PLAYING : PlayerState.PAUSED);
+      syncFollowClock(Number(data.positionMs || 0), playing);
+    } finally {
+      applyingFollowSession = false;
+    }
     return;
   }
   if (type === 'shizuki:play-track') {
@@ -780,37 +1106,19 @@ export function installShizukiExternalBridge(): void {
   installEmbedLyricSizing();
   window.addEventListener('message', handleMessage);
   usePlaybackStore.subscribe((state, previousState) => {
-    const now = performance.now();
+    if (applyingFollowSession) return;
     const switchedTrack = readSongId(state.currentSong) !== readSongId(previousState.currentSong);
     const startedLocalAudio = Boolean(state.audioSrc) && state.audioSrc !== previousState.audioSrc;
 
-    if (followPlaybackActive && now >= suppressPlaybackCommandsUntil && startedLocalAudio) {
-      suppressPlaybackCommandsUntil = now + 500;
-      lockEmbeddedAudio();
-      usePlaybackStore.getState().setAudioSrc(null);
-      return;
-    }
-    if (followPlaybackActive && switchedTrack && now >= suppressPlaybackCommandsUntil) {
-      const navigationAction = now - pendingNavigationActionAt < 1200 ? pendingNavigationAction : null;
-      pendingNavigationAction = null;
-      pendingNavigationActionAt = 0;
-      if (navigationAction) {
-        // The main player owns shuffle order. Do not fall back to Folia's
-        // display queue when a visitor uses previous/next controls.
-        relayEmbeddedNavigation(navigationAction);
-        return;
-      }
-      const snapshot = snapshotStatus();
-      const track = snapshot.track as UnknownRecord | null;
+    if (followPlaybackActive && switchedTrack) {
+      const track = snapshotStatus().track as UnknownRecord | null;
       if (track) forwardTrackIntent(track, 0, true);
       return;
     }
-    if (!followPlaybackActive || now < suppressPlaybackCommandsUntil) return;
-    if (state.playerState === previousState.playerState) return;
-    if (state.playerState === PlayerState.PLAYING) {
-      postToParent({ type: 'shizuki:playback-command', action: 'play' });
-    } else if (state.playerState === PlayerState.PAUSED) {
-      postToParent({ type: 'shizuki:playback-command', action: 'pause' });
+
+    if (followPlaybackActive && startedLocalAudio) {
+      lockEmbeddedAudio();
+      usePlaybackStore.getState().setAudioSrc(null);
     }
   });
   const pending = (window as unknown as { __shizukiPendingCookie?: string }).__shizukiPendingCookie;

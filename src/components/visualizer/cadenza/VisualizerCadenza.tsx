@@ -139,6 +139,7 @@ const createOverlayWordNodes = (): OverlayWordNodes => {
     const outer = document.createElement('div');
     outer.className = 'absolute left-0 top-0';
     outer.setAttribute('aria-hidden', 'true');
+    outer.dataset.shizukiFoliaActiveLyricWord = 'true';
 
     const inner = document.createElement('div');
     inner.className = 'whitespace-nowrap';
@@ -435,7 +436,7 @@ const getClassicLineEnvelope = (time: number, line: Line | null, lineTiming: Res
     }
 
     return {
-        opacity: clamp(opacity, 0, 1),
+        opacity: 1,
         scale,
         blur,
     };

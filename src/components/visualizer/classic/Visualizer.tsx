@@ -136,7 +136,7 @@ const getClassicLineContainerMotion = (renderProfile: ClassicLineRenderProfile |
     }
 
     return {
-        initial: { opacity: 0, scale: 0.9, filter: 'blur(10px)' },
+        initial: { opacity: 1, scale: 0.9, filter: 'blur(10px)' },
         animate: { opacity: 1, scale: 1, filter: 'blur(0px)', transitionEnd: { filter: 'none' } },
         exit: { opacity: 0, scale: 1.1, filter: 'blur(20px)', transition: { duration: 0.3 } },
     };
@@ -211,6 +211,7 @@ const Word: React.FC<{
             variants={layoutVariants}
             initial="waiting"
             animate={status}
+            data-shizuki-folia-active-lyric-word="true"
             // Add `whitespace-nowrap` to prevent unexpected line breaks
             className="inline-block origin-center relative will-change-transform whitespace-nowrap"
             style={{
@@ -262,6 +263,7 @@ const Word: React.FC<{
                 variants={bodyVariants}
                 custom={{ config, activeColor, baseColor, duration, wordRevealMode: renderProfile.wordRevealMode }}
                 className="relative z-10 block"
+                data-shizuki-folia-lyric-word-body="true"
             >
                 {word.text}
             </motion.span>
@@ -588,6 +590,7 @@ const Visualizer: React.FC<VisualizerProps> = (props) => {
                     {showText && activeLine && (
                         <motion.div
                             key={activeLine.startTime}
+                            data-shizuki-folia-lyric-line={String(activeLine.startTime)}
                             initial={activeLineContainerMotion.initial}
                             animate={activeLineContainerMotion.animate}
                             exit={activeLineContainerMotion.exit}

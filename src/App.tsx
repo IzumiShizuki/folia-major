@@ -80,6 +80,7 @@ import { usePlaybackAudioBridge } from './hooks/usePlaybackAudioBridge';
 import { useTranscodeFallback } from './hooks/useTranscodeFallback';
 import { useAutomixDecks, type AutomixDeckId } from './services/automix/useAutomixDecks';
 import { usePlaybackInteractionBridge } from './hooks/usePlaybackInteractionBridge';
+import { isShizukiEmbedSurface, sendEmbeddedPlaybackCommand } from './services/shizukiEmbeddedPlayback';
 import { usePersonalFmModeController } from './hooks/usePersonalFmModeController';
 import { PERSONAL_FM_MODE_COMMAND_ID } from './components/command-palette/commands/fmModeCommand';
 import { usePlaybackUiEffects } from './hooks/usePlaybackUiEffects';
@@ -981,7 +982,7 @@ export default function App() {
         clearPersistedStagePlaybackCache,
         loadLocalSongs,
         loadLocalPlaylists,
-        canRestoreSession: windowPlaybackHandoffRestoreStatus === 'none',
+        canRestoreSession: !isShizukiEmbedSurface() && windowPlaybackHandoffRestoreStatus === 'none',
         shouldAutoPlayRef: shouldAutoPlay,
     });
 
@@ -1637,9 +1638,12 @@ export default function App() {
         stageActiveEntryKind,
         audioSrc,
         duration,
+        isEmbedMode: isShizukiEmbedSurface(),
+        hasCurrentSong: Boolean(currentSong),
     }), [
         activePlaybackContext,
         audioSrc,
+        currentSong,
         currentView,
         disableHomeDynamicBackground,
         duration,
@@ -2034,6 +2038,7 @@ export default function App() {
         return true;
     };
     const seekMainAudio = useCallback((time: number) => {
+        if (sendEmbeddedPlaybackCommand('seek', time)) return;
         if (seekDuringTransitionRef.current(time)) {
             return;
         }

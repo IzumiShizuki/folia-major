@@ -39,6 +39,7 @@ import { useSearchNavigationStore } from '../stores/useSearchNavigationStore';
 import { showLatticeFmNotice, usePlaybackEntryViewStore } from '../stores/usePlaybackEntryViewStore';
 import { useStableActionSurface } from './useStableCallbacks';
 import { hasBeforePlayHook, runBeforePlayHook } from '../services/hostExtensionHooks';
+import { isShizukiEmbedSurface, sendEmbeddedTrackIntent } from '../services/shizukiEmbeddedPlayback';
 
 // src/hooks/usePlaybackQueueController.ts
 
@@ -444,6 +445,9 @@ export function usePlaybackQueueController({
         isFmCall: boolean = false,
         options: PlaybackNavigationOptions = {}
     ) => {
+        // In the site embed the parent owns resolution, lyrics, and the audio element.
+        // Forward the user's selection before any Folia-side lookup can race it.
+        if (sendEmbeddedTrackIntent(requestedSong)) return;
         // Extension layers (Folium `playback.beforePlay`) may cancel or redirect this play.
         // Without an installed hook this is skipped entirely, so the common path stays synchronous.
         // The hook is async, so a later playSong may finish its hook first; this call then drops
@@ -1283,7 +1287,7 @@ export function usePlaybackQueueController({
         setPlayQueue(nextQueue);
         setStatusMsg({ type: 'success', text: t('status.queueShuffled') || 'Queue Shuffled' });
 
-        if (currentSong && nextQueue.length > 1) {
+        if (!isShizukiEmbedSurface() && currentSong && nextQueue.length > 1) {
             invalidateAndRefetch(currentSong, nextQueue, audioQuality, userId);
         }
     }, [audioQuality, currentSong, isNowPlayingStageActive, playQueue, setPlayQueue, setStatusMsg, t, userId]);

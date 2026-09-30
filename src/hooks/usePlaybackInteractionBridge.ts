@@ -15,6 +15,7 @@ import { setIsPanelOpen, useAppViewStore } from '../stores/useAppViewStore';
 import { setIsDevDebugOverlayVisible, setIsMemoryMonitorVisible } from '../stores/useAppChromeStore';
 import { useAudioSettingsStore } from '../stores/useAudioSettingsStore';
 import { currentTime } from '../stores/motionSignals';
+import { sendEmbeddedPlaybackCommand } from '../services/shizukiEmbeddedPlayback';
 
 // src/hooks/usePlaybackInteractionBridge.ts
 
@@ -136,6 +137,9 @@ export function usePlaybackInteractionBridge({
         if (isNowPlayingStageActive) {
             return;
         }
+
+        const embeddedPlayerState = usePlaybackStore.getState().playerState;
+        if (sendEmbeddedPlaybackCommand(embeddedPlayerState === PlayerState.PLAYING ? 'pause' : 'play')) return;
 
         if (activePlaybackContext === 'stage' && stageActiveEntryKind === 'lyrics' && !audioSrc) {
             if (playerState === PlayerState.PLAYING) {
