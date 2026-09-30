@@ -7,6 +7,8 @@ events {
 http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    resolver_timeout 3s;
     log_format combined_no_query '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
                                  '$status $body_bytes_sent "$http_referer" "$http_user_agent"';
     access_log /dev/stdout combined_no_query;
@@ -40,7 +42,9 @@ http {
         }
 
         location /netease/ {
-            proxy_pass http://shizuki-site-music-ncm-api:3000/;
+            set $netease_api shizuki-site-music-ncm-api:3000;
+            rewrite ^/netease/(.*)$ /$1 break;
+            proxy_pass http://$netease_api;
             # Netease QR login returns several large Set-Cookie headers before they are hidden.
             proxy_buffer_size 32k;
             proxy_buffers 8 32k;

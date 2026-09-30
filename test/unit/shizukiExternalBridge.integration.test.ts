@@ -39,6 +39,20 @@ describe('same-document Folia playback bridge', () => {
     vi.spyOn(window, 'setInterval').mockReturnValue(1 as unknown as ReturnType<typeof setInterval>);
     installShizukiExternalBridge();
 
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shizuki:set-lyric-color', color: '#abcdef' },
+    }));
+    expect(root.dataset.shizukiLyricColor).toBe('custom');
+    expect(root.style.getPropertyValue('--shizuki-folia-lyric-color')).toBe('#abcdef');
+    expect(document.getElementById('shizuki-folia-lyric-color-style')?.textContent)
+      .toContain('[data-shizuki-folia-lyric-word-body]');
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shizuki:set-lyric-color', color: '' },
+    }));
+    expect(root.dataset.shizukiLyricColor).toBeUndefined();
+    expect(root.style.getPropertyValue('--shizuki-folia-lyric-color')).toBe('');
+
     const session = {
       version: 1,
       track: { id: 7, name: 'Parent song', artists: [{ name: 'Artist' }] },

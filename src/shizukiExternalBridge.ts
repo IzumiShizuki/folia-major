@@ -145,6 +145,32 @@ function applyEmbedWallpaper(rawSource: unknown, rawPreview: unknown): void {
   observeEmbeddedDefaultBackground(root);
 }
 
+function applyEmbedLyricColor(rawColor: unknown): void {
+  const root = document.getElementById('folia-embed-root');
+  if (!root) return;
+  const color = String(rawColor || '').trim();
+  if (!/^#[\da-f]{6}$/i.test(color)) {
+    delete root.dataset.shizukiLyricColor;
+    root.style.removeProperty('--shizuki-folia-lyric-color');
+    return;
+  }
+
+  if (!embedLyricColorStyleInstalled) {
+    const style = document.createElement('style');
+    style.id = 'shizuki-folia-lyric-color-style';
+    style.textContent = `
+#folia-embed-root[data-shizuki-lyric-color='custom'] [data-shizuki-folia-lyric-word-body] {
+  color: var(--shizuki-folia-lyric-color) !important;
+}
+`;
+    document.head.appendChild(style);
+    embedLyricColorStyleInstalled = true;
+  }
+
+  root.dataset.shizukiLyricColor = 'custom';
+  root.style.setProperty('--shizuki-folia-lyric-color', color);
+}
+
 /**
  * Folia's default latent canvas paints an opaque theme-color rectangle behind
  * the player. It is useful standalone, but in an embedded Home-wallpaper view
@@ -1033,6 +1059,10 @@ function handleMessage(event: MessageEvent): void {
         .then(({ useThemeSettingsStore }) => useThemeSettingsStore.getState().setDaylightPreference(Boolean(data.isDaylight)))
         .catch(() => {});
     }
+    return;
+  }
+  if (type === 'shizuki:set-lyric-color') {
+    applyEmbedLyricColor(data.color);
     return;
   }
   if (type === 'shizuki:set-wallpaper') {

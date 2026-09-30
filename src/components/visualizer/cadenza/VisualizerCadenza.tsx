@@ -153,6 +153,7 @@ const createOverlayWordNodes = (): OverlayWordNodes => {
     body.style.position = 'relative';
     body.style.zIndex = '1';
     body.style.whiteSpace = 'pre';
+    body.dataset.shizukiFoliaLyricWordBody = 'true';
 
     const glow = document.createElement('span');
     glow.style.color = 'transparent';
