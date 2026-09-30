@@ -239,7 +239,7 @@ function readFollowSong(rawTrack: UnknownRecord | null | undefined): SongResult 
     artists,
     album: {
       ...rawAlbum,
-      picUrl: String(rawAlbum.picUrl || rawTrack.cover || rawTrack.coverUrl || rawTrack.cover_url || ''),
+      coverUrl: String(rawAlbum.coverUrl || rawAlbum.picUrl || rawTrack.cover || rawTrack.coverUrl || rawTrack.cover_url || ''),
     },
     durationMs: Number.isFinite(durationMs) ? durationMs : 0,
   } as unknown as SongResult;
@@ -570,7 +570,7 @@ function applyFollowSession(session: FollowSession): void {
   store.setAudioSrc(null);
   store.setCurrentSong(song);
   store.setPlayQueue(queue.length ? queue : (song ? [song] : []));
-  store.setCachedCoverUrl(String(song?.album?.picUrl || ''));
+  store.setCachedCoverUrl(String(song?.album?.coverUrl || ''));
   store.setDuration(Math.max(0, Number(session.durationMs || 0) / 1000));
   store.setLyricsState(lyrics);
   store.setCurrentLineIndex(session.lyricIndex);
@@ -659,7 +659,7 @@ function readSongId(song: unknown): number {
 
 function snapshotStatus(): UnknownRecord {
   const state = usePlaybackStore.getState();
-  const song = state.currentSong as (SongResult & { album?: { picUrl?: string } }) | null;
+  const song = state.currentSong as SongResult | null;
   const artists = Array.isArray(song?.artists)
     ? song.artists.map((artist) => String(artist?.name || '')).filter(Boolean)
     : [];
@@ -671,7 +671,7 @@ function snapshotStatus(): UnknownRecord {
         provider: String((song as unknown as { provider?: unknown }).provider || 'netease'),
         name: String(song.name || ''),
         artists,
-        coverUrl: String(song.album?.picUrl || ''),
+        coverUrl: String(song.album?.coverUrl || ''),
         durationMs: Number(song.durationMs || 0),
       }
       : null,
