@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import type { SongResult } from '../../../types';
 import {
     getLatticeGeometry,
@@ -317,34 +318,36 @@ export default function PosterWall({
             onClickCapture={onClickCapture}
         >
             <div ref={worldRef} className="lattice-world">
-                {instances.map(instance => {
-                    const tile = tiles[instance.queueIndex];
-                    if (!tile) return null;
-                    const expanded = activePoster?.instance.instanceId === instance.instanceId;
-                    const rect = layout.get(instance.instanceId) ?? instance;
-                    return (
-                        <LatticePoster
-                            key={instance.instanceId}
-                            instanceId={instance.instanceId}
-                            isFocused={focused?.instanceId === instance.instanceId}
-                            tile={tile}
-                            rect={rect}
-                            gap={METRICS.gap}
-                            pixelScale={pixelScale}
-                            expandedSize={EXPANDED_SIZE}
-                            entranceDelay={getEntranceDelay(rect)}
-                            getExitDelay={getExitDelay}
-                            expanded={expanded}
-                            reducedMotion={reducedMotion}
-                            didDragRef={didDragRef}
-                            onExpand={expandPoster}
-                            onPlay={onPlay}
-                            onTogglePlayback={onTogglePlayback}
-                            onSeek={onSeek}
-                            onOpenPlayer={onOpenPlayer}
-                        />
-                    );
-                })}
+                <AnimatePresence initial={false} propagate={false}>
+                    {instances.map(instance => {
+                        const tile = tiles[instance.queueIndex];
+                        if (!tile) return null;
+                        const expanded = activePoster?.instance.instanceId === instance.instanceId;
+                        const rect = layout.get(instance.instanceId) ?? instance;
+                        return (
+                            <LatticePoster
+                                key={instance.instanceId}
+                                instanceId={instance.instanceId}
+                                isFocused={focused?.instanceId === instance.instanceId}
+                                tile={tile}
+                                rect={rect}
+                                gap={METRICS.gap}
+                                pixelScale={pixelScale}
+                                expandedSize={EXPANDED_SIZE}
+                                entranceDelay={getEntranceDelay(rect)}
+                                getExitDelay={getExitDelay}
+                                expanded={expanded}
+                                reducedMotion={reducedMotion}
+                                didDragRef={didDragRef}
+                                onExpand={expandPoster}
+                                onPlay={onPlay}
+                                onTogglePlayback={onTogglePlayback}
+                                onSeek={onSeek}
+                                onOpenPlayer={onOpenPlayer}
+                            />
+                        );
+                    })}
+                </AnimatePresence>
             </div>
 
         </div>
