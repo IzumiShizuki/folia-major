@@ -36,7 +36,7 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
         currentTime,
         currentLineIndex,
         lines,
-        theme,
+        theme: lyricTheme,
         subtitleTheme,
         subtitleFontScale = 1,
         audioPower,
@@ -56,6 +56,7 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
         onLyricLineSeek,
         seed,
     } = props;
+    const theme = props.backgroundTheme ?? lyricTheme;
     const { t } = useTranslation();
     const resolvedSubtitleContentMode = resolveSubtitleContentMode(subtitleContentMode, showSubtitleTranslation);
     const displayLines = useMemo(() => {
@@ -281,7 +282,7 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
                                     lines={displayLines}
                                     currentLineIndex={currentLineIndex}
                                     currentTime={currentTime}
-                                    theme={theme}
+                                    theme={lyricTheme}
                                     lyricFontPx={lyricFontPx}
                                     inactiveFontPx={inactiveFontPx}
                                     translationFontPx={translationFontPx}

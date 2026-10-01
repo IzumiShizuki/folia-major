@@ -33,6 +33,7 @@ import {
 } from './dioramaTextRaster';
 import { DioramaParticleField } from './DioramaParticleField';
 import { buildDioramaParticleCorridorWindow } from './dioramaParticleCorridor';
+import { resolveDioramaBackgroundPalette } from './dioramaBackgroundPalette';
 import {
     DIORAMA_MOTE_LINES_AHEAD,
     DIORAMA_MOTE_LINES_BEHIND,
@@ -68,6 +69,7 @@ import {
 // instead of snapping. All per-frame values are refs inside useFrame - never React state.
 interface DioramaSceneProps {
     theme: Theme;
+    backgroundTheme?: Theme;
     // The continuous-tunnel sequencer + the sticky GLOBAL line index. The scene resolves each global
     // index in the mounted window to its segment/local line/world frame, so the window can straddle a
     // graft joint: the outgoing song's tail lines recede/dissolve behind while the incoming song's head
@@ -374,6 +376,8 @@ interface DampedThemeColors {
     accent: THREE.Color;
     secondary: THREE.Color;
     bg: THREE.Color;
+    particleAccent: THREE.Color;
+    particleSecondary: THREE.Color;
 }
 
 // One "unit" of the active line, rendered as its OWN plane: a single grapheme for CJK (每个字单独),
@@ -402,6 +406,7 @@ interface PlacedUnitRaster {
 
 const DioramaScene: React.FC<DioramaSceneProps> = ({
     theme,
+    backgroundTheme = theme,
     sequencer,
     globalIndex,
     transitionOutgoingIndex,
@@ -462,6 +467,10 @@ const DioramaScene: React.FC<DioramaSceneProps> = ({
         accent: theme.accentColor || theme.primaryColor,
         secondary: theme.secondaryColor,
     }), [theme.primaryColor, theme.accentColor, theme.secondaryColor]);
+    const backgroundPalette = useMemo(
+        () => resolveDioramaBackgroundPalette(backgroundTheme),
+        [backgroundTheme],
+    );
 
     // Target theme colours as THREE colours; the damped copies chase these per-frame so theme / AI
     // theme / song switches glide the whole scene's colour instead of snapping it.
@@ -470,7 +479,9 @@ const DioramaScene: React.FC<DioramaSceneProps> = ({
         accent: new THREE.Color(colors.accent),
         secondary: new THREE.Color(colors.secondary),
         bg: new THREE.Color(theme.backgroundColor),
-    }), [colors, theme.backgroundColor]);
+        particleAccent: new THREE.Color(backgroundPalette.accent),
+        particleSecondary: new THREE.Color(backgroundPalette.secondary),
+    }), [backgroundPalette, colors, theme.backgroundColor]);
     const dampedColorsRef = useRef<DampedThemeColors | null>(null);
 
     // Rasters must rebuild once the app's web fonts (bundled + uploaded custom font) finish loading -
@@ -860,6 +871,8 @@ const DioramaScene: React.FC<DioramaSceneProps> = ({
                 accent: colorTargets.accent.clone(),
                 secondary: colorTargets.secondary.clone(),
                 bg: colorTargets.bg.clone(),
+                particleAccent: colorTargets.particleAccent.clone(),
+                particleSecondary: colorTargets.particleSecondary.clone(),
             };
         }
         const damped = dampedColorsRef.current;
@@ -868,6 +881,8 @@ const DioramaScene: React.FC<DioramaSceneProps> = ({
         damped.accent.lerp(colorTargets.accent, colorK);
         damped.secondary.lerp(colorTargets.secondary, colorK);
         damped.bg.lerp(colorTargets.bg, colorK);
+        damped.particleAccent.lerp(colorTargets.particleAccent, colorK);
+        damped.particleSecondary.lerp(colorTargets.particleSecondary, colorK);
         const sceneFog = frameState.scene.fog;
         if (sceneFog) sceneFog.color.copy(damped.bg);
 
@@ -920,7 +935,7 @@ const DioramaScene: React.FC<DioramaSceneProps> = ({
         if (pointsMatRef.current) {
             pointsMatRef.current.size = 0.03 * (1 + 0.42 * trebleEnv);
             pointsMatRef.current.opacity = 0.16 + 0.18 * powerEnv;
-            pointsMatRef.current.color.copy(damped.secondary).lerp(damped.accent, 0.3);
+            pointsMatRef.current.color.copy(damped.particleSecondary).lerp(damped.particleAccent, 0.3);
         }
 
         // Fit each lyric line to read well at the HERO distance (times its per-line staging scale and
@@ -1131,7 +1146,7 @@ const DioramaScene: React.FC<DioramaSceneProps> = ({
                         transparent
                         opacity={0.2}
                         depthWrite={false}
-                        color={colors.secondary}
+                        color={backgroundPalette.secondary}
                         blending={THREE.NormalBlending}
                     />
                 </points>
@@ -1149,10 +1164,10 @@ const DioramaScene: React.FC<DioramaSceneProps> = ({
                     audioPower={audioPower}
                     audioBands={audioBands}
                     audioLevel={motion.audioLevel}
-                    primaryColor={colors.primary}
-                    accentColor={colors.accent}
-                    secondaryColor={colors.secondary}
-                    backgroundColor={theme.backgroundColor}
+                    primaryColor={backgroundPalette.primary}
+                    accentColor={backgroundPalette.accent}
+                    secondaryColor={backgroundPalette.secondary}
+                    backgroundColor={backgroundPalette.background}
                     transitionActive={transitionOutgoingIndex != null}
                     readHeadLine={globalIndex}
                     resetKey={activeSegKey}

@@ -64,6 +64,7 @@ const VisualizerFume: React.FC<VisualizerProps> = (props) => {
         subtitleContentMode,
         paused = false,
     } = props;
+    const backgroundTheme = props.backgroundTheme ?? theme;
     const viewportRef = useRef<HTMLDivElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const currentLineIndexRef = useRef(currentLineIndex);
@@ -340,33 +341,33 @@ const VisualizerFume: React.FC<VisualizerProps> = (props) => {
                         <div
                             className="flex min-w-40 flex-col items-center gap-4 rounded-3xl border px-6 py-5"
                             style={{
-                                backgroundColor: theme.backgroundColor,
-                                borderColor: colorWithAlpha(theme.secondaryColor, 0.24),
-                                boxShadow: `0 18px 60px ${colorWithAlpha(theme.backgroundColor, 0.52)}`,
+                                backgroundColor: backgroundTheme.backgroundColor,
+                                borderColor: colorWithAlpha(backgroundTheme.secondaryColor, 0.24),
+                                boxShadow: `0 18px 60px ${colorWithAlpha(backgroundTheme.backgroundColor, 0.52)}`,
                             }}
                         >
                             <Hourglass
                                 size={24}
                                 className="animate-pulse"
-                                style={{ color: colorWithAlpha(theme.primaryColor, 0.78) }}
+                                style={{ color: colorWithAlpha(backgroundTheme.primaryColor, 0.78) }}
                             />
                             <div className="flex w-28 flex-col gap-2.5">
                                 <div
                                     className="h-2 rounded-full animate-pulse"
-                                    style={{ backgroundColor: colorWithAlpha(theme.primaryColor, 0.32) }}
+                                    style={{ backgroundColor: colorWithAlpha(backgroundTheme.primaryColor, 0.32) }}
                                 />
                                 <div
                                     className="h-2 rounded-full animate-pulse"
                                     style={{
                                         width: '78%',
-                                        backgroundColor: colorWithAlpha(theme.primaryColor, 0.22),
+                                        backgroundColor: colorWithAlpha(backgroundTheme.primaryColor, 0.22),
                                     }}
                                 />
                                 <div
                                     className="h-2 rounded-full animate-pulse"
                                     style={{
                                         width: '56%',
-                                        backgroundColor: colorWithAlpha(theme.secondaryColor, 0.2),
+                                        backgroundColor: colorWithAlpha(backgroundTheme.secondaryColor, 0.2),
                                     }}
                                 />
                             </div>

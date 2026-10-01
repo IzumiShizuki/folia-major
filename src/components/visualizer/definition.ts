@@ -35,6 +35,8 @@ export interface VisualizerSharedProps {
     currentLineIndex: number;
     lines: Line[];
     theme: Theme;
+    /** Original theme reserved for background/stage consumers when the lyric palette is overridden. */
+    backgroundTheme?: Theme;
     subtitleTheme?: Theme;
     isDaylight?: boolean;
     audioPower: MotionValue<number>;

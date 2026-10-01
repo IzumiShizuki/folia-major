@@ -22,6 +22,8 @@ import { getSongAlbumLabel, getSongArtistLabel } from '../../services/onlineMusi
 import { useVisualizerBackgroundConfig } from './useVisualizerBackgroundConfig';
 import { useVisualizerTunings } from './useVisualizerTunings';
 import { NO_LYRIC_LINES } from '../../utils/lyrics/noLyricLines';
+import { useEmbeddedLyricColor } from '../../hooks/useEmbeddedLyricColor';
+import { applyEmbeddedLyricColor } from './embeddedLyricTheme';
 
 // src/components/visualizer/useVisualizerRendererModel.ts
 //
@@ -97,6 +99,11 @@ export const useVisualizerRendererModel = ({
     const displayPlayerState = usePlaybackStore(selectDisplayPlayerState);
     const backgroundConfig = useVisualizerBackgroundConfig();
     const visualizerTunings = useVisualizerTunings();
+    const embeddedLyricColor = useEmbeddedLyricColor();
+    const lyricTheme = useMemo(
+        () => applyEmbeddedLyricColor(theme, embeddedLyricColor),
+        [embeddedLyricColor, theme],
+    );
 
     const songArtist = useMemo(
         () => (displaySong ? getSongArtistLabel(displaySong) || null : null),
@@ -125,7 +132,8 @@ export const useVisualizerRendererModel = ({
         currentTime: lyricCurrentTime,
         currentLineIndex,
         lines: displayLyrics?.lines || NO_LYRIC_LINES,
-        theme,
+        theme: lyricTheme,
+        backgroundTheme: theme,
         subtitleTheme,
         isDaylight,
         audioPower,

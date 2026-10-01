@@ -29,6 +29,7 @@ type VisualizerShellSharedProps = Pick<
     | 'alwaysShowBackButton'
     | 'onPlayerPanelGuideHotspotChange'
     | 'isPreviewMode'
+    | 'backgroundTheme'
 >;
 
 interface VisualizerShellProps {
@@ -76,6 +77,7 @@ const VisualizerShell = forwardRef<HTMLDivElement, VisualizerShellProps>(({
     const onPlayerPanelGuideHotspotChange = sharedProps?.onPlayerPanelGuideHotspotChange;
     const isBackButtonVisible = sharedProps?.alwaysShowBackButton || showBackButton;
     const showStageLayers = !sharedProps?.isPreviewMode && !resolvedStaticMode;
+    const backgroundTheme = sharedProps?.backgroundTheme ?? theme;
 
     const updatePlayerPanelGuideHotspot = (isActive: boolean) => {
         if (playerPanelGuideHotspotRef.current === isActive) {
@@ -185,7 +187,7 @@ const VisualizerShell = forwardRef<HTMLDivElement, VisualizerShellProps>(({
             {renderBackground && (
                 <VisualizerBackgroundRenderer
                     config={sharedProps?.background}
-                    theme={theme}
+                    theme={backgroundTheme}
                     isDaylight={resolvedIsDaylight}
                     coverUrl={resolvedCoverUrl}
                     audioPower={audioPower}
@@ -204,7 +206,7 @@ const VisualizerShell = forwardRef<HTMLDivElement, VisualizerShellProps>(({
             {showStageLayers && (
                 <FoliumStageLayerSlot
                     slot="player.stage.back"
-                    theme={theme}
+                    theme={backgroundTheme}
                     isDaylight={resolvedIsDaylight}
                     paused={resolvedPaused}
                 />
@@ -215,7 +217,7 @@ const VisualizerShell = forwardRef<HTMLDivElement, VisualizerShellProps>(({
             {showStageLayers && (
                 <FoliumStageLayerSlot
                     slot="player.stage.front"
-                    theme={theme}
+                    theme={backgroundTheme}
                     isDaylight={resolvedIsDaylight}
                     paused={resolvedPaused}
                     className="absolute inset-0 pointer-events-none z-20"

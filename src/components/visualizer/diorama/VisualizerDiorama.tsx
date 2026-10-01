@@ -418,6 +418,7 @@ const VisualizerDiorama: React.FC<VisualizerDioramaProps> = (props) => {
                     />
                     <DioramaScene
                         theme={theme}
+                        backgroundTheme={props.backgroundTheme ?? theme}
                         sequencer={seq}
                         globalIndex={globalIndex}
                         transitionOutgoingIndex={transition?.outgoingIndex ?? null}
