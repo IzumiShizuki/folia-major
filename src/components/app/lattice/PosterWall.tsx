@@ -318,6 +318,7 @@ export default function PosterWall({
             onClickCapture={onClickCapture}
         >
             <div ref={worldRef} className="lattice-world">
+                {/* The wall exits as one unit; its staggered poster wave must not hold App's outer completion gate. */}
                 <AnimatePresence initial={false} propagate={false}>
                     {instances.map(instance => {
                         const tile = tiles[instance.queueIndex];
