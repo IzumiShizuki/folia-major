@@ -17,6 +17,14 @@ export type LatticeTile = {
     section: LatticeSection;
 };
 
+/** Uses queue-slot identity when available, with playback identity for standalone/legacy queues. */
+export const getLatticeTileId = (song: SongResult): string => {
+    const entryId = (song as SongResult & { queueEntryId?: unknown }).queueEntryId;
+    return typeof entryId === 'string' && entryId.trim()
+        ? entryId.trim()
+        : getPlaybackSongKey(song);
+};
+
 // Marks each entry relative to the playhead; the queue is already de-duplicated by the queue controller.
 export const buildLatticeTiles = ({
     queue,
@@ -25,17 +33,10 @@ export const buildLatticeTiles = ({
     queue: SongResult[];
     currentSong: SongResult | null;
 }): LatticeTile[] => {
-    const getEntryId = (song: SongResult): string | null => {
-        const entryId = (song as SongResult & { queueEntryId?: unknown }).queueEntryId;
-        return typeof entryId === 'string' && entryId.trim() ? entryId.trim() : null;
-    };
-    const currentEntryId = currentSong ? getEntryId(currentSong) : null;
-    const currentKey = currentSong ? getPlaybackSongKey(currentSong) : null;
-    const currentIndex = currentEntryId !== null
-        ? queue.findIndex(song => getEntryId(song) === currentEntryId)
-        : currentKey === null
+    const currentTileId = currentSong ? getLatticeTileId(currentSong) : null;
+    const currentIndex = currentTileId === null
         ? -1
-        : queue.findIndex(song => getPlaybackSongKey(song) === currentKey);
+        : queue.findIndex(song => getLatticeTileId(song) === currentTileId);
 
     return queue.map((song, index) => {
         let section: LatticeSection = 'upcoming';
@@ -43,7 +44,7 @@ export const buildLatticeTiles = ({
         else if (currentIndex >= 0 && index < currentIndex) section = 'played';
 
         return {
-            id: getEntryId(song) ?? getPlaybackSongKey(song),
+            id: getLatticeTileId(song),
             queueIndex: index,
             song,
             title: song.name,

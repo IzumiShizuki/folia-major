@@ -7,14 +7,13 @@ import LatticePlaybackProvider, { type LatticePlaybackActions } from './LatticeP
 import { LatticeTransportContext, type LatticeTransport } from './LatticeTransportContext';
 import PosterWall from './PosterWall';
 import LatticeFocusButton from './LatticeFocusButton';
-import { buildLatticeTiles, type LatticeTile } from './latticeModel';
+import { buildLatticeTiles, getLatticeTileId, type LatticeTile } from './latticeModel';
 import { useStableCallbacks } from '../../../hooks/useStableCallbacks';
 import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
 import { countRender } from '../../../dev/renderCount';
 import './Lattice.css';
 import LatticeLyricsProvider from './lyrics/LatticeLyricsProvider';
 import type { LatticeLyricSource } from './lyrics/types';
-import { getPlaybackSongKey } from '../../../utils/appPlaybackGuards';
 import { isPrimaryModifierPressed, isSecondaryModifierPressed } from '../../../utils/platform';
 import { isEmbeddedWorkspaceActive, isEmbeddedWorkspaceSurface } from '../../../services/embeddedWorkspaceNavigation';
 
@@ -106,7 +105,7 @@ export default function Lattice({
         <LatticeTransportContext.Provider value={transport}>
         <LatticePlaybackProvider actions={controls} currentSong={currentSong} queue={queue} lyrics={lyrics}
             currentTime={currentTime} duration={playbackDuration} onSeek={onSeek} isDaylight={isDaylight}>
-        <LatticeLyricsProvider source={lyricSource} songKey={currentSong ? getPlaybackSongKey(currentSong) : ''}
+        <LatticeLyricsProvider source={lyricSource} songKey={currentSong ? getLatticeTileId(currentSong) : ''}
             keywordColoringEnabled={lyricKeywordColoringEnabled}>
         <section
             className={`lattice-root ${isDaylight ? 'is-daylight' : ''} ${vignette ? 'has-vignette' : ''} ${lightsOn ? '' : 'is-lights-out'} ${posterTintEnabled ? 'has-poster-tint' : ''} ${posterTintUseCustomColor ? 'uses-custom-poster-tint' : ''}`}

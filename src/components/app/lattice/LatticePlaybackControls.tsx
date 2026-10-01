@@ -3,7 +3,7 @@ import { ArrowUpRight, Pause, Play } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import ProgressBar from '../../ProgressBar';
 import { PlayerState } from '../../../types';
-import { getPlaybackSongKey } from '../../../utils/appPlaybackGuards';
+import { getLatticeTileId } from './latticeModel';
 import { useLatticeTransport } from './LatticeTransportContext';
 import type { LatticeTile } from './latticeModel';
 import LatticeChromeTime from './LatticeChromeTime';
@@ -36,7 +36,7 @@ export default function LatticePlaybackControls({
     // Subscribed here rather than threaded through every poster: only this card reads transport state.
     const { currentSong, playerState, currentTime, playbackDuration, canTogglePlayback } = useLatticeTransport();
     const isCurrentSong = Boolean(
-        currentSong && getPlaybackSongKey(currentSong) === getPlaybackSongKey(tile.song),
+        currentSong && getLatticeTileId(currentSong) === tile.id,
     );
     const canControlCurrent = isCurrentSong && canTogglePlayback;
     const isPlaying = canControlCurrent && playerState === PlayerState.PLAYING;

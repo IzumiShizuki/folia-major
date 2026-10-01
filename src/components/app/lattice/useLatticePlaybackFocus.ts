@@ -3,9 +3,8 @@ import { useStableCallbacks } from '../../../hooks/useStableCallbacks';
 import { useLatticeControlsStore } from '../../../stores/useLatticeControlsStore';
 import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
 import type { SongResult } from '../../../types';
-import { getPlaybackSongKey } from '../../../utils/appPlaybackGuards';
 import { layoutExpandedBlock, locateNearestInstance, type LatticeGeometry, type QueueInstance, type WallMetrics } from './layout';
-import type { LatticeTile } from './latticeModel';
+import { getLatticeTileId, type LatticeTile } from './latticeModel';
 
 // Follows discrete song changes; per-frame camera movement stays inside useWallCameraPan.
 
@@ -38,7 +37,7 @@ export const useLatticePlaybackFocus = ({
     const lastFocusedSongKeyRef = useRef<string | null>(null);
     const autoFocusOnSongChange = useLatticeSettingsStore(state => state.autoFocusOnSongChange);
 
-    const currentSongKey = currentSong ? getPlaybackSongKey(currentSong) : null;
+    const currentSongKey = currentSong ? getLatticeTileId(currentSong) : null;
     // Permanent identity, dispatching to this render's closure. The wall publishes this action to
     // a store the palette subscribes to, so re-creating it on every queue or camera change would
     // write to that store — and re-render App, and with it the whole wall — for nothing.
