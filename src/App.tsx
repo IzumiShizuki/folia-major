@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
-import { AnimatePresence, motion, useMotionValueEvent } from 'framer-motion';
+import { motion, useMotionValueEvent } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft } from 'lucide-react';
 import { loadCachedOrFetchCover } from './services/coverCache';
@@ -18,6 +18,7 @@ import { useSettingsDialogModel } from './components/app/dialogs/useSettingsDial
 import AppOverlays from './components/app/overlays/AppOverlays';
 import AutomixModelReminder from './components/modal/AutomixModelReminder';
 import PonderHost from './components/ponder/PonderHost';
+import LatticePresenceLayer from './components/app/lattice/LatticePresenceLayer';
 // Lazy so animejs (~38KB gz) stays out of the bootstrap chunk: this overlay only ever draws when the
 // animation switch is on AND the mode is automix, both off by default, so it is mounted only then.
 const AutomixTransitionAnimation = lazy(() => import('./components/app/overlays/AutomixTransitionAnimation'));
@@ -62,6 +63,7 @@ import { omni } from './services/onlineMusic/omni';
 import { getSongArtistLabel, getSongCoverUrl } from './services/onlineMusic/songMetadata';
 import { isNavidromeEnabled } from './services/navidromeService';
 import { useAppNavigation } from './hooks/useAppNavigation';
+import { useLatticeExitGate } from './hooks/useLatticeExitGate';
 import { useNeteaseLibrary } from './hooks/useNeteaseLibrary';
 import { useKugouLibrary } from './hooks/useKugouLibrary';
 import { useQqLibrary } from './hooks/useQqLibrary';
@@ -668,11 +670,7 @@ export default function App() {
         backCollection,
     } = useAppNavigation();
     const reduceLatticeMotion = useReducedMotionFor('lattice');
-    const [hasLatticeExited, setHasLatticeExited] = useState(currentView !== 'lattice');
-
-    useEffect(() => {
-        if (currentView === 'lattice') setHasLatticeExited(false);
-    }, [currentView]);
+    const { hasLatticeExited, onLatticeExitComplete } = useLatticeExitGate(currentView);
 
     usePlayerBottomBarOffset(playerBottomBarOffset);
     usePlayerBottomBarPositioningEntry(navigateToPlayer);
@@ -2678,49 +2676,40 @@ export default function App() {
                 </motion.div>
             </div>
 
-            <AnimatePresence
-                initial={false}
-                onExitComplete={() => setHasLatticeExited(useAppViewStore.getState().view !== 'lattice')}
+            <LatticePresenceLayer
+                active={currentView === 'lattice'}
+                duration={reduceLatticeMotion ? 0 : 0.62}
+                onExitComplete={onLatticeExitComplete}
             >
-                {currentView === 'lattice' && (
-                    <motion.div
-                        key="lattice"
-                        className="absolute inset-0 z-10 pointer-events-auto"
-                        initial={false}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: reduceLatticeMotion ? 0 : 0.62, ease: 'easeIn' }}
-                    >
-                        <Suspense fallback={<div className="absolute inset-0 bg-[#070707]" />}>
-                            <Lattice
-                                controls={{ playback: commandPaletteContext.playback, loopMode: effectiveLoopMode,
-                                    invokeCommandById: commandPalette.invokeCommandById, canInvokeCommandById: commandPalette.canInvokeCommandById,
-                                    isStageActive: isNowPlayingStageActive, disabled: isNowPlayingControlDisabled }}
-                                lyrics={commandPaletteContext.shared.lyrics}
-                                lyricSource={visualizerRendererModel}
-                                lyricKeywordColoringEnabled={visualizerRendererModel.visualizerTunings.monet.keywordColoringEnabled}
-                                currentSong={displaySong}
-                                playerState={displayPlayerState}
-                                currentTime={currentTime}
-                                playbackDuration={displayDuration}
-                                canTogglePlayback={canToggleCurrentPlayback}
-                                queue={playQueue}
-                                isDaylight={isDaylight}
-                                onBack={navigateBackFromLattice}
-                                onOpenPlayer={navigateToPlayer}
-                                onPlaySong={(song, queue, queueIndex) => {
-                                    void playSong(song, queue, false, {
-                                        shouldNavigateToPlayer: false,
-                                        embeddedSelectionIndex: queueIndex,
-                                        embeddedSelectionView: 'lattice',
-                                    });
-                                }}
-                                onTogglePlayback={togglePlay}
-                                onSeek={seekMainAudio}
-                            />
-                        </Suspense>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                <Suspense fallback={<div className="absolute inset-0 bg-[#070707]" />}>
+                    <Lattice
+                        controls={{ playback: commandPaletteContext.playback, loopMode: effectiveLoopMode,
+                            invokeCommandById: commandPalette.invokeCommandById, canInvokeCommandById: commandPalette.canInvokeCommandById,
+                            isStageActive: isNowPlayingStageActive, disabled: isNowPlayingControlDisabled }}
+                        lyrics={commandPaletteContext.shared.lyrics}
+                        lyricSource={visualizerRendererModel}
+                        lyricKeywordColoringEnabled={visualizerRendererModel.visualizerTunings.monet.keywordColoringEnabled}
+                        currentSong={displaySong}
+                        playerState={displayPlayerState}
+                        currentTime={currentTime}
+                        playbackDuration={displayDuration}
+                        canTogglePlayback={canToggleCurrentPlayback}
+                        queue={playQueue}
+                        isDaylight={isDaylight}
+                        onBack={navigateBackFromLattice}
+                        onOpenPlayer={navigateToPlayer}
+                        onPlaySong={(song, queue, queueIndex) => {
+                            void playSong(song, queue, false, {
+                                shouldNavigateToPlayer: false,
+                                embeddedSelectionIndex: queueIndex,
+                                embeddedSelectionView: 'lattice',
+                            });
+                        }}
+                        onTogglePlayback={togglePlay}
+                        onSeek={seekMainAudio}
+                    />
+                </Suspense>
+            </LatticePresenceLayer>
 
             {/* --- VISUALIZER (Background Layer & Main Click Target) --- */}
             {/* 指针隐藏跟着控制栏的空闲时钟走，不另起一套计时：控件收起时页面上已经没有可点的东西，

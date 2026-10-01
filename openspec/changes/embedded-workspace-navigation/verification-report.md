@@ -26,4 +26,16 @@ The previous complete suite recorded 4,385 passing and 2 skipped tests with one 
 
 ## Delivery status
 
-Public patch/source identity verification, owner-controlled push, joint deployment and fresh real-browser acceptance are still pending. Local mounted tests do not by themselves establish that the full production region remains usable. Record the exact released commit/image/assets and continuing pointer/keyboard plus Escape acceptance here after those gates pass.
+The initial public patch/source identity verification, owner-controlled push and joint deployment passed. Production acceptance exposed the additional rendered transition defect below; the followup must be published and visually accepted before delivery is complete.
+
+## Initial production acceptance and transition followup
+
+Host `5f08281c` and fork `9b2346e2` were pushed and jointly deployed to personal server `111.228.35.186`. Initial Folia image `sha256:ff9b0f6fbb43919cdff3f5299ec117ee6cc84ca6ef9d820ae5229e21a58a22fb` was built from the exact Git archive and its OCI revision matches the fork. Site health/entry checks and gateway health passed; prior images, source stash and site restore points remain retained.
+
+Fresh Edge (`index-Bvvt1XEq.js`, `main-CZFleggA.js`) confirmed full P2 `purple` (83 tracks), actual wall B selection, advancing clock, native pause and paused forward/back seek. Explicit B player entry and one Escape restored the P2 wall without changing the host URL. A subsequent toolbar C selection, however, updated song/clock but left only the background visible. Computed DOM exposed the outgoing Lattice wrapper at opacity zero with pointer-events auto and full pane bounds; invisible posters still appeared in center hit-testing while the new player controls were absent. Root captured a screenshot and delegated a real transition-lifecycle regression to Luna. Host canonical navigation was reviewed separately and still requests the correct player view.
+
+This is a remaining production defect, not an accepted audio-only result. Final rendered input/return/color acceptance must be repeated after the followup deployment.
+
+## Rendered lifecycle followup validation
+
+`App` now uses `LatticePresenceLayer` with an explicit active opacity/interaction target and an inert exit target. `useLatticeExitGate` is the actual App gate also exercised by the integration fixture. A real Framer Motion test first failed with `expected 0 to be greater than 0.95`; after repair it verifies interrupted exit/reentry, an inert outgoing layer, complete exit mounting the player, and a second complete cycle. Root independently reran the previous affected suites plus `test/unit/latticePresenceLayer.integration.test.ts`: **37 files / 245 tests passed**. TypeScript, `/music/` production build and strict OpenSpec validation also passed. Final production acceptance remains required.

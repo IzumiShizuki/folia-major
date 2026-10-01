@@ -18,6 +18,7 @@ See proposal.md and the host change `unify-folia-workspace-navigation`. The exte
 - Host playlist codes describe the authoritative queue, not a native online collection. Retain a real native snapshot only if its source/provider/type/opaque ID matches; repeated player/song changes replace one return layer, and a missing native snapshot returns to the queue wall. Wall selection preserves exact current queue entry/index even when the source is a native collection.
 - Host protocol IDs remain monotonic across host page remount while the embedded root is parked. Inactive handlers and command relays must return before consuming keys or opening hidden modal surfaces.
 - Reproduce red at real bridge/navigation/queue-controller seams before implementation. Use mounted component/browser interaction for the full input symptom; mocked Pixi or message spies alone cannot prove it.
+- The actual Lattice presence boundary must restore opacity/interaction when an exit is interrupted and make its outgoing layer inert immediately. Share App's exit gate with a real Framer Motion lifecycle test so subsequent complete exits cannot strand the player behind a transparent layer.
 
 ## Risks / Trade-offs
 
