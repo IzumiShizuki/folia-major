@@ -13,6 +13,13 @@ import { useTypographySettingsStore } from './stores/useTypographySettingsStore'
 import { currentTime, lyricCurrentTime } from './stores/motionSignals';
 import { findLatestActiveLineIndex } from './utils/appPlaybackHelpers';
 import { projectEmbeddedPlaybackClock } from './services/shizukiEmbeddedPlayback';
+import {
+  applyEmbeddedHostNavigation,
+  applyLegacyEmbeddedView,
+  isEmbeddedWorkspaceActive,
+  normalizeEmbeddedSourceContext,
+  retainEmbeddedSourceContext,
+} from './services/embeddedWorkspaceNavigation';
 
 const COOKIE_STORAGE_KEYS = ['online_provider:netease:cookie', 'netease_cookie'];
 const EMBED_AUDIO_SELECTOR = '#folia-embed-root audio';
@@ -24,6 +31,7 @@ type FollowSession = {
   track: UnknownRecord | null;
   queue: UnknownRecord[];
   playlist: UnknownRecord | null;
+  sourceContext: UnknownRecord | null;
   lyrics: UnknownRecord[];
   lyricRenderMode: string;
   lyricIndex: number;
@@ -40,6 +48,9 @@ let followClockPlaying = false;
 let applyingFollowSession = false;
 let latestFollowSessionVersion = -1;
 let latestFollowLyricsFingerprint = '';
+let latestFollowQueueFingerprint = '';
+let latestFollowSourceContextFingerprint = '';
+let latestFollowTrackFingerprint: string | null | undefined;
 let audioLockInstalled = false;
 let progressSeekBridgeInstalled = false;
 let navigationBridgeInstalled = false;
@@ -551,8 +562,9 @@ function installEmbedLyricSizing(): void {
 
 function readFollowSong(rawTrack: UnknownRecord | null | undefined): SongResult | null {
   if (!rawTrack) return null;
-  const id = Number(rawTrack.foliaId ?? rawTrack.id ?? rawTrack.trackId ?? rawTrack.track_id);
-  if (!Number.isFinite(id) || id <= 0) return null;
+  const rawId = rawTrack.foliaId ?? rawTrack.id ?? rawTrack.trackId ?? rawTrack.track_id;
+  const id = typeof rawId === 'number' ? rawId : String(rawId ?? '').trim();
+  if (!id || (typeof id === 'number' && (!Number.isFinite(id) || id <= 0))) return null;
   const rawArtists = Array.isArray(rawTrack.artists) ? rawTrack.artists : [];
   const artistText = String(rawTrack.artist || '').trim();
   const artists = rawArtists.length
@@ -585,9 +597,43 @@ function readFollowSong(rawTrack: UnknownRecord | null | undefined): SongResult 
 
 function readFollowQueue(rawQueue: unknown): SongResult[] {
   if (!Array.isArray(rawQueue)) return [];
-  return rawQueue
-    .map((item) => (item && typeof item === 'object' ? readFollowSong(item as UnknownRecord) : null))
-    .filter((item): item is SongResult => item !== null);
+  return rawQueue.flatMap((item, index) => {
+    if (!item || typeof item !== 'object') return [];
+    const song = readFollowSong(item as UnknownRecord);
+    if (!song) return [];
+    const sourceRef = song.sourceRef;
+    const provider = sourceRef?.kind === 'online' ? sourceRef.providerId : sourceRef?.kind || 'track';
+    const providedEntryId = String((song as SongResult & { queueEntryId?: unknown }).queueEntryId ?? '').trim();
+    return [{
+      ...song,
+      queueEntryId: providedEntryId || `${provider}:${sourceRef?.mediaId ?? song.id}@${index}`,
+    } as SongResult];
+  });
+}
+
+function buildFollowQueueFingerprint(queue: SongResult[]): string {
+  return JSON.stringify(queue.map((song) => ({
+    entryId: String((song as SongResult & { queueEntryId?: unknown }).queueEntryId ?? ''),
+    id: String(song.id),
+    sourceRef: song.sourceRef,
+    name: song.name,
+    artists: song.artists,
+    album: song.album,
+    durationMs: song.durationMs,
+  })));
+}
+
+function buildFollowTrackFingerprint(song: SongResult | null): string | null {
+  if (!song) return null;
+  return JSON.stringify({
+    entryId: String((song as SongResult & { queueEntryId?: unknown }).queueEntryId ?? ''),
+    id: String(song.id),
+    sourceRef: song.sourceRef,
+    name: song.name,
+    artists: song.artists,
+    album: song.album,
+    durationMs: song.durationMs,
+  });
 }
 
 function readSeconds(value: unknown, fallback = 0): number {
@@ -685,12 +731,16 @@ function readFollowSession(raw: unknown): FollowSession | null {
   const track = data.track && typeof data.track === 'object' ? data.track as UnknownRecord : null;
   const queue = Array.isArray(data.queue) ? data.queue.filter((item): item is UnknownRecord => Boolean(item) && typeof item === 'object') : [];
   const playlist = data.playlist && typeof data.playlist === 'object' ? data.playlist as UnknownRecord : null;
+  const sourceContext = data.sourceContext && typeof data.sourceContext === 'object'
+    ? data.sourceContext as UnknownRecord
+    : null;
   const lyrics = Array.isArray(data.lyrics) ? data.lyrics.filter((item): item is UnknownRecord => Boolean(item) && typeof item === 'object') : [];
   return {
     version,
     track,
     queue,
     playlist,
+    sourceContext,
     lyrics,
     lyricRenderMode: String(data.lyricRenderMode || 'original'),
     lyricIndex: Number.isInteger(Number(data.lyricIndex)) ? Number(data.lyricIndex) : -1,
@@ -783,7 +833,7 @@ function readEmbeddedProgressInput(target: EventTarget | null): HTMLInputElement
 }
 
 function readEmbeddedProgressPosition(target: HTMLInputElement): number | null {
-  if (!followPlaybackActive) return null;
+  if (!followPlaybackActive || !isEmbeddedWorkspaceActive()) return null;
   const duration = Math.max(0, Number(usePlaybackStore.getState().duration) || 0);
   const minimum = Number(target.min || 0);
   const maximum = Number(target.max);
@@ -889,7 +939,7 @@ function installEmbeddedNavigationBridge(): void {
   if (navigationBridgeInstalled || typeof document === 'undefined') return;
   navigationBridgeInstalled = true;
   document.addEventListener('click', (event) => {
-    if (!followPlaybackActive) return;
+    if (!followPlaybackActive || !isEmbeddedWorkspaceActive()) return;
     const action = readNavigationAction(event.target);
     if (!action) return;
     event.preventDefault();
@@ -906,19 +956,39 @@ function applyFollowSession(session: FollowSession): void {
   if (session.version < latestFollowSessionVersion) return;
   latestFollowSessionVersion = session.version;
   followPlaybackActive = true;
+  const normalizedSourceContext = normalizeEmbeddedSourceContext(session.sourceContext);
+  if (normalizedSourceContext) {
+    const sourceContextFingerprint = JSON.stringify(normalizedSourceContext);
+    if (sourceContextFingerprint !== latestFollowSourceContextFingerprint) {
+      latestFollowSourceContextFingerprint = sourceContextFingerprint;
+      retainEmbeddedSourceContext(normalizedSourceContext);
+    }
+  }
   applyingFollowSession = true;
 
   const store = usePlaybackStore.getState();
   const song = readFollowSong(session.track);
+  const trackFingerprint = buildFollowTrackFingerprint(song);
+  const trackChanged = trackFingerprint !== latestFollowTrackFingerprint;
+  const projectedSong = trackChanged ? song : store.currentSong;
   const queue = readFollowQueue(session.queue);
+  const projectedQueue = queue.length ? queue : (projectedSong ? [projectedSong] : []);
+  const queueFingerprint = buildFollowQueueFingerprint(projectedQueue);
+  const queueChanged = queueFingerprint !== latestFollowQueueFingerprint;
   const lyricsFingerprint = buildFollowLyricsFingerprint(session.lyrics, song, session.durationMs);
   const lyricsChanged = lyricsFingerprint !== latestFollowLyricsFingerprint;
   try {
     lockEmbeddedAudio();
     store.setAudioSrc(null);
-    store.setCurrentSong(song);
-    store.setPlayQueue(queue.length ? queue : (song ? [song] : []));
-    store.setCachedCoverUrl(String(song?.album?.coverUrl || ''));
+    if (trackChanged) {
+      latestFollowTrackFingerprint = trackFingerprint;
+      store.setCurrentSong(song);
+    }
+    if (queueChanged) {
+      latestFollowQueueFingerprint = queueFingerprint;
+      store.setPlayQueue(projectedQueue);
+    }
+    store.setCachedCoverUrl(String(projectedSong?.album?.coverUrl || ''));
     store.setDuration(Math.max(0, Number(session.durationMs || 0) / 1000));
     if (lyricsChanged) {
       const lyrics = buildFollowLyrics(session.lyrics, song, session.durationMs);
@@ -941,6 +1011,9 @@ function stopFollowPlayback(): void {
   followClockPlaying = false;
   latestFollowSessionVersion = -1;
   latestFollowLyricsFingerprint = '';
+  latestFollowQueueFingerprint = '';
+  latestFollowSourceContextFingerprint = '';
+  latestFollowTrackFingerprint = undefined;
   if (followClockFrame) window.cancelAnimationFrame(followClockFrame);
   followClockFrame = 0;
   lockEmbeddedAudio();
@@ -1074,10 +1147,16 @@ function handleMessage(event: MessageEvent): void {
   }
   if (type === 'shizuki:set-view') {
     const view = String(data.view || '').trim();
-    if (view === 'player' || view === 'lattice') {
-      import('./stores/useAppViewStore')
-        .then(({ useAppViewStore }) => useAppViewStore.getState().setView(view as 'player' | 'lattice'))
-        .catch(() => {});
+    if (view === 'player' || view === 'lattice' || view === 'home') {
+      applyLegacyEmbeddedView(view);
+    }
+    return;
+  }
+  if (type === 'shizuki:navigate') {
+    const result = applyEmbeddedHostNavigation(data);
+    const requestId = Number(data.requestId);
+    if (Number.isSafeInteger(requestId)) {
+      postToParent({ type: 'shizuki:navigate-result', protocolVersion: 1, requestId, ...result });
     }
     return;
   }

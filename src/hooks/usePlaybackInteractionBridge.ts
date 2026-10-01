@@ -16,6 +16,7 @@ import { setIsDevDebugOverlayVisible, setIsMemoryMonitorVisible } from '../store
 import { useAudioSettingsStore } from '../stores/useAudioSettingsStore';
 import { currentTime } from '../stores/motionSignals';
 import { sendEmbeddedPlaybackCommand } from '../services/shizukiEmbeddedPlayback';
+import { isEmbeddedWorkspaceActive, isEmbeddedWorkspaceSurface } from '../services/embeddedWorkspaceNavigation';
 
 // src/hooks/usePlaybackInteractionBridge.ts
 
@@ -201,6 +202,7 @@ export function usePlaybackInteractionBridge({
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
+            if (isEmbeddedWorkspaceSurface() && !isEmbeddedWorkspaceActive()) return;
             if (isTextEntryTarget(event.target)) {
                 return;
             }
@@ -248,7 +250,7 @@ export function usePlaybackInteractionBridge({
                     break;
                 }
                 case 'Space':
-                    if (currentSong && (audioSrc || isNowPlayingStageActive || (activePlaybackContext === 'stage' && stageActiveEntryKind === 'lyrics'))) {
+                    if (currentSong && (audioSrc || isEmbeddedWorkspaceActive() || isNowPlayingStageActive || (activePlaybackContext === 'stage' && stageActiveEntryKind === 'lyrics'))) {
                         event.preventDefault();
                         if (isNowPlayingStageActive) {
                             return;
@@ -286,6 +288,7 @@ export function usePlaybackInteractionBridge({
                         // Off the motion value, not the element: during a blend that value is driven
                         // by the deck on screen, which is the track this key is meant to move.
                         const nextTime = Math.max(0, currentTime.get() - 5);
+                        if (sendEmbeddedPlaybackCommand('seek', nextTime)) break;
                         if (!seekDuringTransition?.(nextTime) && audioRef.current) {
                             audioRef.current.currentTime = nextTime;
                         }
@@ -322,6 +325,7 @@ export function usePlaybackInteractionBridge({
                         // the element holds the ARRIVING track's length, and clamping this track's
                         // position against it lands past its end.
                         const nextTime = Math.min(duration || 0, currentTime.get() + 5);
+                        if (sendEmbeddedPlaybackCommand('seek', nextTime)) break;
                         if (!seekDuringTransition?.(nextTime) && audioRef.current) {
                             audioRef.current.currentTime = nextTime;
                         }

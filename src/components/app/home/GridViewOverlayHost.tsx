@@ -5,7 +5,7 @@ import GridView, { GridViewSourceActions } from '../../GridView';
 import ArtistGridView from '../../ArtistGridView';
 import { getActiveGridViewCollection, useCollectionNavigationStore } from '../../../stores/useCollectionNavigationStore';
 import { LocalSong, SongResult, UnifiedSong } from '../../../types';
-import { resolveNavidromePlaybackCarrier } from '../../../utils/appPlaybackGuards';
+import { getPlaybackSongKey, resolveNavidromePlaybackCarrier } from '../../../utils/appPlaybackGuards';
 import { deleteFolderSongs, resyncAllFolders, resyncFolder } from '../../../services/localMusicService';
 import { deleteLocalPlaylist, removeSongsFromLocalPlaylist, updateLocalPlaylist } from '../../../services/localPlaylistService';
 import { downloadLocalPlaylistM3u8 } from '../../../services/localPlaylistFileService';
@@ -531,8 +531,21 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
     }, [refreshNavidromePlaylists, selectedCollection]);
 
     const handleSelectTrack = useCallback((track: SongResult, queue: SongResult[]) => {
-        surfaceProps.onPlaySong(track, queue);
-    }, [surfaceProps]);
+        if (!selectedCollection) {
+            surfaceProps.onPlaySong(track, queue);
+            return;
+        }
+        const queueIndex = queue.findIndex(item => item === track);
+        const resolvedIndex = queueIndex >= 0
+            ? queueIndex
+            : queue.findIndex(item => getPlaybackSongKey(item) === getPlaybackSongKey(track));
+        surfaceProps.onPlaySong(track, queue, false, {
+            embeddedCollectionSelection: true,
+            ...(resolvedIndex >= 0 ? { embeddedSelectionIndex: resolvedIndex } : {}),
+            embeddedSelectionView: 'lattice',
+            shouldNavigateToPlayer: false,
+        });
+    }, [selectedCollection, surfaceProps]);
 
     const handleAddTrackToQueue = useCallback((track: SongResult) => {
         const unifiedTrack = track as UnifiedSong;

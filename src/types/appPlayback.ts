@@ -15,6 +15,12 @@ import type { MediaId } from './onlineMusic';
 // Shared playback-specific types extracted from App.tsx.
 export type PlaybackNavigationOptions = {
     shouldNavigateToPlayer?: boolean;
+    /** The exact queue slot selected from an embedded playback wall. */
+    embeddedSelectionIndex?: number;
+    /** Keep wall selections on the wall; explicit immersive entry remains a navigation action. */
+    embeddedSelectionView?: 'lattice' | 'player';
+    /** Set only by a native collection-detail row, whose playable queue replaces the shared queue. */
+    embeddedCollectionSelection?: boolean;
     unavailableSkipCount?: number;
     unifiedQueue?: SongResult[];
     /**

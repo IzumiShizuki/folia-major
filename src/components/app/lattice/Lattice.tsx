@@ -16,6 +16,7 @@ import LatticeLyricsProvider from './lyrics/LatticeLyricsProvider';
 import type { LatticeLyricSource } from './lyrics/types';
 import { getPlaybackSongKey } from '../../../utils/appPlaybackGuards';
 import { isPrimaryModifierPressed, isSecondaryModifierPressed } from '../../../utils/platform';
+import { isEmbeddedWorkspaceActive, isEmbeddedWorkspaceSurface } from '../../../services/embeddedWorkspaceNavigation';
 
 // Queue display layer; it renders the play queue and never mutates it.
 
@@ -33,7 +34,7 @@ type LatticeProps = {
     isDaylight: boolean;
     onBack: () => void;
     onOpenPlayer: () => void;
-    onPlaySong: (song: SongResult, queue: SongResult[]) => void;
+    onPlaySong: (song: SongResult, queue: SongResult[], queueIndex: number) => void;
     onTogglePlayback: () => void;
     onSeek: (time: number) => void;
 };
@@ -68,6 +69,7 @@ export default function Lattice({
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
+            if (isEmbeddedWorkspaceSurface() && !isEmbeddedWorkspaceActive()) return;
             if (event.repeat
                 || event.key.toLowerCase() !== 'b'
                 || !isPrimaryModifierPressed(event)
@@ -87,7 +89,7 @@ export default function Lattice({
     // App rebuilds these on every render of its own, and the wall hands them to every poster on
     // screen. Given a permanent identity here they stop being a reason for those posters to render.
     const wall = useStableCallbacks({
-        onPlay: (tile: LatticeTile) => onPlaySong(tile.song, queue),
+        onPlay: (tile: LatticeTile) => onPlaySong(tile.song, queue, tile.queueIndex),
         onTogglePlayback,
         onSeek,
         onOpenPlayer,

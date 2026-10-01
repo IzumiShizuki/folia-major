@@ -1,8 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isShizukiEmbedSurface, projectEmbeddedPlaybackClock, sendEmbeddedPlaybackCommand, sendEmbeddedTrackIntent } from '../../src/services/shizukiEmbeddedPlayback';
+import { applyEmbeddedHostNavigation, resetEmbeddedWorkspaceForTests } from '../../src/services/embeddedWorkspaceNavigation';
+
+let requestId = 500;
+
+const activateEmbed = (active = true) => {
+  expect(applyEmbeddedHostNavigation({
+    protocolVersion: 1, requestId: requestId++, view: 'player', active,
+  }).ok).toBe(true);
+};
 
 describe('Shizuki embedded playback relay', () => {
   afterEach(() => {
+    resetEmbeddedWorkspaceForTests();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -20,6 +30,7 @@ describe('Shizuki embedded playback relay', () => {
     const postMessage = vi.fn();
     vi.stubGlobal('document', { getElementById: () => ({}) });
     vi.stubGlobal('window', { parent: { postMessage } });
+    activateEmbed();
 
     expect(sendEmbeddedPlaybackCommand('pause')).toBe(true);
     expect(sendEmbeddedPlaybackCommand('seek', 42.25)).toBe(true);
@@ -33,11 +44,18 @@ describe('Shizuki embedded playback relay', () => {
     const postMessage = vi.fn();
     vi.stubGlobal('document', { getElementById: () => ({}) });
     vi.stubGlobal('window', { parent: { postMessage } });
+    activateEmbed();
     const track = { id: 17, name: 'Selected' };
 
     expect(sendEmbeddedTrackIntent(track)).toBe(true);
     expect(postMessage).toHaveBeenCalledWith({
-      type: 'shizuki:playback-intent', track, positionMs: 0, playing: true,
+      type: 'shizuki:playback-intent',
+      track: {
+        id: '17', trackId: '17', name: 'Selected', provider: 'netease', providerId: 'netease',
+        sourceRef: { kind: 'online', providerId: 'netease', mediaId: '17' },
+      },
+      positionMs: 0,
+      playing: true,
     }, '*');
   });
 
@@ -48,6 +66,17 @@ describe('Shizuki embedded playback relay', () => {
     expect(isShizukiEmbedSurface()).toBe(false);
   });
 
+  it('does not send playback commands or intents from a parked embedded workspace', () => {
+    const postMessage = vi.fn();
+    vi.stubGlobal('document', { getElementById: () => ({}) });
+    vi.stubGlobal('window', { parent: { postMessage } });
+    activateEmbed(false);
+
+    expect(sendEmbeddedPlaybackCommand('pause')).toBe(false);
+    expect(sendEmbeddedTrackIntent({ id: 18 })).toBe(false);
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
   it('leaves standalone Folia playback on its existing path', () => {
     const postMessage = vi.fn();
     vi.stubGlobal('document', { getElementById: () => null });
@@ -56,5 +85,50 @@ describe('Shizuki embedded playback relay', () => {
     expect(sendEmbeddedPlaybackCommand('play')).toBe(false);
     expect(sendEmbeddedTrackIntent({ id: 18 })).toBe(false);
     expect(postMessage).not.toHaveBeenCalled();
+  });
+  it('hands off a complete native collection selection with source identity and its real queue index', () => {
+    const postMessage = vi.fn();
+    vi.stubGlobal('document', { getElementById: () => ({}) });
+    vi.stubGlobal('window', { parent: { postMessage } });
+    activateEmbed();
+    const tracks = [
+      { id: 17, provider: 'netease', name: 'A' },
+      { id: 'opaque-b', provider: 'qq', name: 'B' },
+      { id: 19, provider: 'netease', name: 'C' },
+    ];
+    const selection = {
+      kind: 'collection',
+      queuePolicy: 'replace',
+      selectedIndex: 1,
+      tracks,
+      sourceContext: {
+        kind: 'collection',
+        collection: { source: 'online', providerId: 'qq', type: 'playlist', id: 'P2', name: 'P2' },
+      },
+    };
+
+    expect((sendEmbeddedTrackIntent as (track: unknown, selection: unknown) => boolean)(tracks[1], selection)).toBe(true);
+    const queueEntryIds = tracks.map((track, index) => `${track.provider}:${track.id}@${index}`);
+    expect(postMessage).toHaveBeenCalledWith({
+      type: 'shizuki:playback-intent',
+      track: {
+        ...tracks[1], id: 'opaque-b', trackId: 'opaque-b', providerId: 'qq',
+        sourceRef: { kind: 'online', providerId: 'qq', mediaId: 'opaque-b' },
+      },
+      positionMs: 0,
+      playing: true,
+      selection: {
+        ...selection,
+        queueEntryId: queueEntryIds[1],
+        tracks: tracks.map((track, index) => ({
+          ...track,
+          id: String(track.id),
+          trackId: String(track.id),
+          providerId: track.provider,
+          sourceRef: { kind: 'online', providerId: track.provider, mediaId: String(track.id) },
+          queueEntryId: queueEntryIds[index],
+        })),
+      },
+    }, '*');
   });
 });

@@ -18,6 +18,13 @@ import { usePlaybackStore } from '../stores/usePlaybackStore';
 import { usePlaybackEntryViewStore } from '../stores/usePlaybackEntryViewStore';
 import { setStatusMessage } from '../stores/useStatusMessageStore';
 import i18n from '../i18n/config';
+import {
+    backEmbeddedWorkspace,
+    isEmbeddedWorkspaceActive,
+    isEmbeddedWorkspaceSurface,
+    navigateEmbeddedWorkspace,
+    retainEmbeddedSourceContext,
+} from '../services/embeddedWorkspaceNavigation';
 
 // src/hooks/useAppNavigation.ts
 
@@ -97,6 +104,17 @@ const getStartupView = (): ViewState => (
 const getCollectionHash = (collection: GridViewCollectionDescriptor) => (
     `#collection/${collection.source}/${collection.type}/${encodeURIComponent(String(collection.id))}`
 );
+
+const buildEmbeddedCollectionContext = (collection: GridViewCollectionDescriptor) => ({
+    kind: 'collection' as const,
+    collection: {
+        source: collection.source,
+        ...(collection.source === 'online' ? { providerId: collection.providerId } : {}),
+        type: collection.type,
+        id: String(collection.id),
+        name: collection.name,
+    },
+});
 
 const LOCAL_MUSIC_LAST_ROW_KEY = 'folia_local_music_last_row';
 
@@ -196,6 +214,12 @@ export function useAppNavigation() {
     }, []);
 
     useEffect(() => {
+        if (isEmbeddedWorkspaceSurface()) {
+            // The host and Folia share one document in an embed. Its router owns browser history;
+            // embedded view transitions use the bounded in-memory workspace instead.
+            resetLocalNavigationContext();
+            return;
+        }
         const initialView = getStartupView();
         const initialState = buildHistoryState(initialView);
         window.history.replaceState(
@@ -222,6 +246,10 @@ export function useAppNavigation() {
     }, []);
 
     const navigateToPlayer = useCallback(() => {
+        if (isEmbeddedWorkspaceSurface()) {
+            navigateEmbeddedWorkspace('player');
+            return;
+        }
         const collection = useCollectionNavigationStore.getState().snapshot;
         const search = getSearchHistorySnapshot();
         const historyState = window.history.state as NavigationHistoryState | null;
@@ -236,14 +264,22 @@ export function useAppNavigation() {
 
     useEffect(() => {
         if (!isFmMode || currentView !== 'lattice') return;
+        if (isEmbeddedWorkspaceSurface()) {
+            if (isEmbeddedWorkspaceActive()) navigateEmbeddedWorkspace('player');
+            return;
+        }
         const collection = useCollectionNavigationStore.getState().snapshot;
         const search = getSearchHistorySnapshot();
         // FM owns and extends its queue dynamically, so replace a stale Lattice entry instead of
         // leaving it in browser history where Back would immediately reopen an unsupported view.
         pushNavigationState({ view: 'player', replace: true, hash: '#player', search, collection });
-    }, [currentView, isFmMode, pushNavigationState]);
+    }, [currentView, isFmMode, navigateEmbeddedWorkspace, pushNavigationState]);
 
     const navigateToHome = useCallback(() => {
+        if (isEmbeddedWorkspaceSurface()) {
+            navigateEmbeddedWorkspace('home');
+            return;
+        }
         if (useAppViewStore.getState().view === 'home') {
             return;
         }
@@ -261,6 +297,10 @@ export function useAppNavigation() {
 
     const navigateToLattice = useCallback(() => {
         if (blockLatticeNavigationInFm()) return;
+        if (isEmbeddedWorkspaceSurface()) {
+            navigateEmbeddedWorkspace('lattice');
+            return;
+        }
         if (useAppViewStore.getState().view === 'lattice') return;
         useSearchNavigationStore.getState().hideSearchOverlay();
         pushNavigationState({
@@ -305,6 +345,10 @@ export function useAppNavigation() {
     }, [navigateToLattice, navigateToPlayer]);
 
     const navigateBackFromLattice = useCallback(() => {
+        if (isEmbeddedWorkspaceSurface()) {
+            backEmbeddedWorkspace();
+            return;
+        }
         const state = window.history.state as NavigationHistoryState | null;
         if (state?.view === 'lattice' && getAppHistoryIndex(state) > 0) {
             window.history.back();
@@ -315,6 +359,14 @@ export function useAppNavigation() {
 
     const navigateDirectHome = useCallback((options?: { clearContext?: boolean; }) => {
         const clearContext = options?.clearContext ?? true;
+        if (isEmbeddedWorkspaceSurface()) {
+            if (!isEmbeddedWorkspaceActive()) return;
+            if (clearContext) resetLocalNavigationContext();
+            useSearchNavigationStore.getState().hideSearchOverlay();
+            if (clearContext) useCollectionNavigationStore.getState().clear();
+            navigateEmbeddedWorkspace('home', { recordCurrent: false });
+            return;
+        }
         if (clearContext) {
             resetLocalNavigationContext();
         }
@@ -328,6 +380,10 @@ export function useAppNavigation() {
     }, [pushNavigationState, resetLocalNavigationContext]);
 
     const navigateBackFromPlayer = useCallback(() => {
+        if (isEmbeddedWorkspaceSurface()) {
+            backEmbeddedWorkspace();
+            return;
+        }
         const historyState = window.history.state as NavigationHistoryState | null;
         if (shouldNavigatePlayerBackThroughHistory(historyState)) {
             window.history.back();
@@ -347,6 +403,14 @@ export function useAppNavigation() {
         replace?: boolean;
         returnView?: SearchReturnView;
     }) => {
+        if (isEmbeddedWorkspaceSurface()) {
+            if (!isEmbeddedWorkspaceActive()) return;
+            useCollectionNavigationStore.getState().clear();
+            const search = { query, sourceTab, returnView };
+            useSearchNavigationStore.getState().restoreSearch(search);
+            navigateEmbeddedWorkspace('home', { recordCurrent: !replace });
+            return;
+        }
         useCollectionNavigationStore.getState().clear();
         const search = { query, sourceTab, returnView };
         pushNavigationState({
@@ -359,6 +423,13 @@ export function useAppNavigation() {
 
     const closeSearchView = useCallback(() => {
         const searchReturnView = useSearchNavigationStore.getState().searchReturnView;
+        if (isEmbeddedWorkspaceSurface()) {
+            if (isEmbeddedWorkspaceActive()) {
+                useSearchNavigationStore.getState().hideSearchOverlay();
+                navigateEmbeddedWorkspace(searchReturnView, { recordCurrent: false });
+            }
+            return;
+        }
         useSearchNavigationStore.getState().hideSearchOverlay();
         pushNavigationState({
             view: searchReturnView,
@@ -373,7 +444,15 @@ export function useAppNavigation() {
         collection: GridViewCollectionDescriptor,
         origin: CollectionNavigationOrigin,
     ) => {
+        if (isEmbeddedWorkspaceSurface() && !isEmbeddedWorkspaceActive()) return;
         const snapshot = useCollectionNavigationStore.getState().openRoot(collection, origin);
+        if (isEmbeddedWorkspaceSurface()) {
+            navigateEmbeddedWorkspace('home', {
+                sourceContext: buildEmbeddedCollectionContext(collection),
+                recordCurrent: false,
+            });
+            return;
+        }
         const search = origin === 'search' ? getSearchHistorySnapshot() : null;
         pushNavigationState({
             view: 'home',
@@ -384,8 +463,16 @@ export function useAppNavigation() {
     }, [pushNavigationState]);
 
     const pushCollection = useCallback((collection: GridViewCollectionDescriptor) => {
+        if (isEmbeddedWorkspaceSurface() && !isEmbeddedWorkspaceActive()) return;
         const snapshot = useCollectionNavigationStore.getState().push(collection);
         if (!snapshot) {
+            return;
+        }
+        if (isEmbeddedWorkspaceSurface()) {
+            navigateEmbeddedWorkspace('home', {
+                sourceContext: buildEmbeddedCollectionContext(collection),
+                recordCurrent: false,
+            });
             return;
         }
         pushNavigationState({
@@ -397,11 +484,12 @@ export function useAppNavigation() {
     }, [pushNavigationState]);
 
     const backCollection = useCallback(() => {
+        if (isEmbeddedWorkspaceSurface() && !isEmbeddedWorkspaceActive()) return;
         const snapshot = useCollectionNavigationStore.getState().snapshot;
         if (!snapshot) {
             return;
         }
-        if (window.history.state?.collection) {
+        if (!isEmbeddedWorkspaceSurface() && window.history.state?.collection) {
             window.history.back();
             return;
         }
@@ -409,6 +497,8 @@ export function useAppNavigation() {
         const nextStack = snapshot.stack.slice(0, -1);
         if (nextStack.length > 0) {
             useCollectionNavigationStore.getState().restore({ ...snapshot, stack: nextStack });
+            const active = nextStack[nextStack.length - 1];
+            if (isEmbeddedWorkspaceSurface() && active) retainEmbeddedSourceContext(buildEmbeddedCollectionContext(active));
             return;
         }
         useCollectionNavigationStore.getState().clear();

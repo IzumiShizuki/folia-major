@@ -16,6 +16,7 @@ import { resolveCustomShortcutCommand } from './customShortcut';
 
 // src/components/command-palette/useCommandPalette.ts
 import { isTextEntryTarget } from '../../utils/keyboardTargets';
+import { isEmbeddedWorkspaceActive, isEmbeddedWorkspaceSurface } from '../../services/embeddedWorkspaceNavigation';
 
 // Manages palette state, keyboard opening, and selected autocomplete item.
 
@@ -474,6 +475,7 @@ export const useCommandPalette = ({
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
+            if (isEmbeddedWorkspaceSurface() && !isEmbeddedWorkspaceActive()) return;
             // Ordered by who has the stronger claim on the keystroke, not by how the palette is
             // built. A modifier shortcut can never be mistaken for input, so it goes first; a
             // surface that reads bare characters outranks every modifier-free palette key, or the

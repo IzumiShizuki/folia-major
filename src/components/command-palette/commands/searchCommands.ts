@@ -1,6 +1,7 @@
 import { Search } from 'lucide-react';
 import type { SearchSource } from '../../../stores/useSearchNavigationStore';
 import type { CommandPaletteCommand, CommandPaletteContext, CommandPaletteSearchSource } from '../types';
+import { isShizukiEmbedSurface } from '../../../services/shizukiEmbeddedPlayback';
 
 // src/components/command-palette/commands/searchCommands.ts
 // Commands in the `search` group: run a query against one music source and navigate to results.
@@ -60,7 +61,7 @@ const runSearch = async (
         context.search.navigateToSearch({
             query: trimmedQuery,
             sourceTab,
-            replace: typeof window !== 'undefined' && Boolean(window.history.state?.search),
+            replace: !isShizukiEmbedSurface() && typeof window !== 'undefined' && Boolean(window.history.state?.search),
             returnView: 'player',
         });
     }

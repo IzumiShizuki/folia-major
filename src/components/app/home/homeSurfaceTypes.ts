@@ -13,6 +13,7 @@ import type {
 } from '../../../types';
 import type { MediaId, ProviderCollection, ProviderUser } from '../../../types/onlineMusic';
 import type { NavidromeSong, NavidromeViewSelection } from '../../../types/navidrome';
+import type { PlaybackNavigationOptions } from '../../../types/appPlayback';
 
 // src/components/app/home/homeSurfaceTypes.ts
 
@@ -28,7 +29,7 @@ export type HomeLocalMusicState = {
 };
 
 export interface HomeSurfaceProps {
-    onPlaySong: (song: SongResult, playlistCtx?: SongResult[], isFmCall?: boolean) => void;
+    onPlaySong: (song: SongResult, playlistCtx?: SongResult[], isFmCall?: boolean, options?: PlaybackNavigationOptions) => void;
     onBackToPlayer: () => void;
     onRefreshUser: () => void;
     user: ProviderUser | null;

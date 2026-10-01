@@ -2707,8 +2707,12 @@ export default function App() {
                                 isDaylight={isDaylight}
                                 onBack={navigateBackFromLattice}
                                 onOpenPlayer={navigateToPlayer}
-                                onPlaySong={(song, queue) => {
-                                    void playSong(song, queue, false, { shouldNavigateToPlayer: false });
+                                onPlaySong={(song, queue, queueIndex) => {
+                                    void playSong(song, queue, false, {
+                                        shouldNavigateToPlayer: false,
+                                        embeddedSelectionIndex: queueIndex,
+                                        embeddedSelectionView: 'lattice',
+                                    });
                                 }}
                                 onTogglePlayback={togglePlay}
                                 onSeek={seekMainAudio}

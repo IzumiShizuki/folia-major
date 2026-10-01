@@ -16,6 +16,7 @@ import type { AudioQualityPreference, MediaId } from '../types/onlineMusic';
 import type { NextTrackOptions, PlaybackNavigationOptions, SkipPromptMessageKey, UnavailableReplacementRequest } from '../types/appPlayback';
 import type { NavidromeSong } from '../types/navidrome';
 import {
+    getPlaybackSourceRef,
     getPlaybackSongKey,
     isLocalPlaybackSong,
     isNavidromePlaybackSong,
@@ -40,10 +41,64 @@ import { showLatticeFmNotice, usePlaybackEntryViewStore } from '../stores/usePla
 import { useStableActionSurface } from './useStableCallbacks';
 import { hasBeforePlayHook, runBeforePlayHook } from '../services/hostExtensionHooks';
 import { isShizukiEmbedSurface, sendEmbeddedTrackIntent } from '../services/shizukiEmbeddedPlayback';
+import { getEmbeddedSourceContext, isEmbeddedWorkspaceActive, normalizeEmbeddedSourceContext, type EmbeddedSourceContext } from '../services/embeddedWorkspaceNavigation';
+import { useCollectionNavigationStore } from '../stores/useCollectionNavigationStore';
 
 // src/hooks/usePlaybackQueueController.ts
 
 type SetState<T> = Dispatch<SetStateAction<T>>;
+
+const buildEmbeddedSelection = (
+    song: SongResult,
+    requestedQueue: SongResult[],
+    options: PlaybackNavigationOptions,
+) => {
+    const snapshot = useCollectionNavigationStore.getState().snapshot;
+    const collection = snapshot?.stack[snapshot.stack.length - 1];
+    const storedCollectionContext: EmbeddedSourceContext | null = collection ? {
+            kind: 'collection',
+            collection: {
+                source: collection.source,
+                ...(collection.source === 'online' ? { providerId: collection.providerId } : {}),
+                type: collection.type,
+                id: String(collection.id),
+                name: collection.name,
+            },
+        } : null;
+    const context: EmbeddedSourceContext = storedCollectionContext
+        ?? normalizeEmbeddedSourceContext(getEmbeddedSourceContext())
+        ?? { kind: 'queue' };
+    const activeQueue = usePlaybackStore.getState().playQueue;
+    const queue = requestedQueue.length ? requestedQueue : activeQueue.length ? activeQueue : [song];
+    const isNativeCollectionSelection = context.kind === 'collection'
+        && Boolean(collection && context.collection)
+        && requestedQueue.length > 0
+        && options.embeddedCollectionSelection === true;
+    const requestedIndex = options.embeddedSelectionIndex;
+    const selectedIndex = Number.isInteger(requestedIndex) && requestedIndex! >= 0 && requestedIndex! < queue.length
+        ? requestedIndex!
+        : queue.findIndex(item => getPlaybackSongKey(item) === getPlaybackSongKey(song));
+    const selectedQueueSong = selectedIndex >= 0 ? queue[selectedIndex] : null;
+    const selectedSourceRef = selectedQueueSong ? getPlaybackSourceRef(selectedQueueSong) : null;
+    const selectedProvider = selectedSourceRef
+        ? selectedSourceRef.kind === 'online' ? selectedSourceRef.providerId : selectedSourceRef.kind
+        : '';
+    const queueEntryId = selectedQueueSong
+        ? String((selectedQueueSong as SongResult & { queueEntryId?: string; entryId?: string }).queueEntryId
+            ?? (selectedQueueSong as SongResult & { entryId?: string }).entryId
+            ?? `${selectedProvider}:${selectedSourceRef?.mediaId ?? selectedQueueSong.id}@${selectedIndex}`)
+        : undefined;
+    return {
+        kind: isNativeCollectionSelection ? 'collection' as const : 'track' as const,
+        queuePolicy: isNativeCollectionSelection ? 'replace' as const : 'preserve-or-insert' as const,
+        sourceContext: context,
+        ...(selectedIndex >= 0 ? { selectedIndex } : {}),
+        ...(queueEntryId ? { queueEntryId } : {}),
+        ...(isNativeCollectionSelection ? { tracks: queue } : {}),
+        view: options.embeddedSelectionView
+            ?? (isNativeCollectionSelection || options.shouldNavigateToPlayer === false ? 'lattice' : 'player'),
+    };
+};
 
 type SearchDeps = {
     submitSearch: (args: {
@@ -447,7 +502,11 @@ export function usePlaybackQueueController({
     ) => {
         // In the site embed the parent owns resolution, lyrics, and the audio element.
         // Forward the user's selection before any Folia-side lookup can race it.
-        if (sendEmbeddedTrackIntent(requestedSong)) return;
+        if (isShizukiEmbedSurface()) {
+            if (!isEmbeddedWorkspaceActive()) return;
+            sendEmbeddedTrackIntent(requestedSong, buildEmbeddedSelection(requestedSong, queue, options));
+            return;
+        }
         // Extension layers (Folium `playback.beforePlay`) may cancel or redirect this play.
         // Without an installed hook this is skipped entirely, so the common path stays synchronous.
         // The hook is async, so a later playSong may finish its hook first; this call then drops
@@ -779,7 +838,7 @@ export function usePlaybackQueueController({
             navigateToSearch({
                 query: trimmedQuery,
                 sourceTab,
-                replace: Boolean(window.history.state?.search),
+                replace: !isShizukiEmbedSurface() && Boolean(window.history.state?.search),
                 returnView: searchReturnView,
             });
         }

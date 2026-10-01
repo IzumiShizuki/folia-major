@@ -25,8 +25,15 @@ export const buildLatticeTiles = ({
     queue: SongResult[];
     currentSong: SongResult | null;
 }): LatticeTile[] => {
+    const getEntryId = (song: SongResult): string | null => {
+        const entryId = (song as SongResult & { queueEntryId?: unknown }).queueEntryId;
+        return typeof entryId === 'string' && entryId.trim() ? entryId.trim() : null;
+    };
+    const currentEntryId = currentSong ? getEntryId(currentSong) : null;
     const currentKey = currentSong ? getPlaybackSongKey(currentSong) : null;
-    const currentIndex = currentKey === null
+    const currentIndex = currentEntryId !== null
+        ? queue.findIndex(song => getEntryId(song) === currentEntryId)
+        : currentKey === null
         ? -1
         : queue.findIndex(song => getPlaybackSongKey(song) === currentKey);
 
@@ -36,7 +43,7 @@ export const buildLatticeTiles = ({
         else if (currentIndex >= 0 && index < currentIndex) section = 'played';
 
         return {
-            id: getPlaybackSongKey(song),
+            id: getEntryId(song) ?? getPlaybackSongKey(song),
             queueIndex: index,
             song,
             title: song.name,
