@@ -1,49 +1,53 @@
-# Verification record
+# Embedded workspace verification, 2026-10-02
 
-## Local implementation review
+Verified implementation: `7069103b4ce862f0e1f8befde5c48dbe778777f4` on the user's `codex/unify-folia-workspace` branch. Root diagnosed, reviewed and independently validated Luna's implementation. This report completes acceptance and leaves the change unarchived.
 
-The host/fork contract and the accepted playback-only playlist rule are implemented. Root independently reviewed the boundary and ran the affected tests, type check and production build after Luna's handoff on 2026-10-01.
+## OpenSpec assessment
 
-| Requirement | Implementation and behavioral evidence |
+| Dimension | Result |
 | --- | --- |
-| Embedded history isolation | `embeddedWorkspaceNavigation.ts` and `useAppNavigation.ts`; mounted bridge/navigation integration covers host route preservation, real back actions, parked-root stale requests/reentry and standalone history. |
-| Current playlist return | One bounded playback return; matching native source/provider/type/ID uses its actual collection snapshot, otherwise the current queue wall. Repeated B/C/D navigation does not stack prior song pages. |
-| Complete selection handoff | Actual mounted queue controller relays native collection tracks/index and exact wall queue entries. Shortcuts remain queue-preserving and reveal the player. Folia never falls through into standalone audio resolution when parked. |
-| Continuing input | Mounted Lattice click/keyboard and mounted playback shortcut tests. Inactive playback, Lattice and command-palette global key handlers return before consuming input. |
-| Stable playback projection | Bridge integration preserves equivalent queue/current-song references over pause/clock snapshots and does not overwrite newer native navigation with unchanged host context. Existing clock/seek/audio/color regressions remain included. |
+| Completeness | 18/18 tasks; all 5 requirements mapped below. |
+| Correctness | Mounted behavioral tests, type check, build and the reproduced continuous production failure chain pass. |
+| Coherence | Bounded embedded navigation, sole host audio ownership, stable projection and native component boundaries follow design.md. |
 
-Root command:
+| Requirement | Implementation and scenario evidence |
+| --- | --- |
+| Embedded navigation is isolated | `src/services/embeddedWorkspaceNavigation.ts`, `src/hooks/useAppNavigation.ts`, `src/shizukiExternalBridge.ts`; mounted navigation/bridge tests preserve host routing, reject inactive/stale work and retain standalone history. |
+| Return preserves current playlist | One bounded player layer returns to a matching real native collection snapshot or the authoritative queue wall. Mounted tests cover B/C/D, missing collection and top-layer dismissal; live Escape restores both the P2 wall and actual native purple collection. |
+| Complete native selection is handed to host | `src/services/shizukiEmbeddedPlayback.ts` and mounted playback-controller tests relay complete ordered tracks, opaque source and exact index. Explicit collection selection replaces even an equal-song queue; unmarked shortcuts preserve/insert. Live native purple B installs all 83 tracks at its actual slot. |
+| Selection leaves interface interactive | Active input guards, stable identity, `LatticePresenceLayer`, `useLatticeExitGate` and separate poster presence. Real mounted keyboard/pointer, interrupted exit, duplicate-slot and repeated poster-wave tests pass; live pause, held-pointer seek, repeated entry and Escape pass. |
+| Existing playback and visuals remain compatible | Shared continuous clock and host intents, empty/paused Folia audio, consistent entry identity in lyrics/focus/controls, primary shader color/reset and standalone fallback. Existing tests and actual blue lyric canvas/reset acceptance pass. |
 
-```powershell
-node node_modules/vitest/vitest.mjs run -c vitest.config.ts test/unit/shizukiEmbeddedPlayback.test.ts test/unit/shizukiExternalBridge.integration.test.ts test/unit/shizukiLatticeLyricColor.integration.test.ts test/unit/buildPlayerViewFlags.embedded.test.ts test/unit/cadenzaWrappedLyrics.test.ts test/unit/shizukiEmbeddedWorkspaceNavigation.integration.test.ts test/unit/shizukiEmbeddedPlaybackController.integration.test.ts test/unit/shizukiEmbeddedKeyboard.integration.test.ts test/unit/latticeEmbeddedWorkspaceInput.integration.test.ts test/unit/navigation test/unit/lattice test/unit/search/searchNavigationStore.test.ts test/unit/gridView
-node node_modules/typescript/bin/tsc --noEmit
-$env:VITE_BASE_PATH='/music'; node node_modules/vite/bin/vite.js build
-```
+No unresolved critical implementation issue or known spec/design divergence was found. No verification dimension was skipped. Coverage limits are explicit below.
 
-Outcome after final source-origin review: **36 files / 244 tests passed**, TypeScript passed, production build passed, `git diff --check` passed. Explicit native collection selection carries a detail-row origin marker and always replaces source/queue, including P2 with identical tracks to P1. Unmarked command-palette selections of that same queue preserve its ordering. Builds retain existing chunk-size and ineffective dynamic-import warnings.
+## Rendered-boundary diagnosis and repair
 
-The previous complete suite recorded 4,385 passing and 2 skipped tests with one Windows `EPERM` symbolic-link failure in upstream `modSignature`; the same failure was reproduced on clean upstream v0.7.11. This delivery reruns affected suites rather than claiming a new complete-suite pass or weakening that upstream test.
+- `9b2346e2` could leave an outgoing wall at opacity 0 with pointer-events auto. `311b98d5` restores active opacity/interaction and makes exit inert; tests share App's exit gate with real Framer Motion.
+- `311b98d5` selected the exact entry but lyrics/focus/transport still compared song keys. `9ed6ab22` consistently uses `getLatticeTileId` (queueEntryId, otherwise standalone song key). Mounted real Lattice/provider tests distinguish duplicate slots and verify lyric consumer input and focus/controls.
+- `9ed6ab22` could strand the third exit after B reentry and C auto-focus. `latticeRepeatedExit.integration.test.ts` mounts real Lattice/presence/gate with 84 slots and a 5000x5000 measured viewport, producing 400 virtualized posters. Original code fails with `completed=2/3; opacity=0; pointerEvents=none; posters=400`. `7069103b` isolates poster removal with non-propagating inner AnimatePresence. The same regression passes without a fixed-duration fallback. An earlier act-scheduling false positive was discarded.
 
-## Delivery status
+## Local quality and public source
 
-The initial public patch/source identity verification, owner-controlled push and joint deployment passed. Production acceptance exposed the additional rendered transition defect below; the followup must be published and visually accepted before delivery is complete.
+Root's final affected run: **39 files / 247 tests passed**, covering embedded playback/bridge/navigation/controller/keyboard, real Lattice input/presence/identity/repeated exit and standalone navigation/search/grid. TypeScript `--noEmit`, Vite `/music/` build, strict OpenSpec validation and source whitespace checks pass. Existing chunk-size/dynamic-import build warnings remain.
 
-## Initial production acceptance and transition followup
+The site's **40 TS/TSX snapshots** match this implementation byte for byte. The complete binary-capable upstream `6fe68d89` patch is checked by actual application to a clean worktree and comparison of every changed Git blob during final host publication. The host verification record contains final patch bytes/hash and the documentation tip separately from the deployed implementation revision.
 
-Host `5f08281c` and fork `9b2346e2` were pushed and jointly deployed to personal server `111.228.35.186`. Initial Folia image `sha256:ff9b0f6fbb43919cdff3f5299ec117ee6cc84ca6ef9d820ae5229e21a58a22fb` was built from the exact Git archive and its OCI revision matches the fork. Site health/entry checks and gateway health passed; prior images, source stash and site restore points remain retained.
+The previously run full suite had **4,385 passed, 2 skipped and one upstream Windows symbolic-link EPERM** in modSignature; clean v0.7.11 reproduces it. This change reruns affected suites, without claiming a new complete-suite pass or weakening that test.
 
-Fresh Edge (`index-Bvvt1XEq.js`, `main-CZFleggA.js`) confirmed full P2 `purple` (83 tracks), actual wall B selection, advancing clock, native pause and paused forward/back seek. Explicit B player entry and one Escape restored the P2 wall without changing the host URL. A subsequent toolbar C selection, however, updated song/clock but left only the background visible. Computed DOM exposed the outgoing Lattice wrapper at opacity zero with pointer-events auto and full pane bounds; invisible posters still appeared in center hit-testing while the new player controls were absent. Root captured a screenshot and delegated a real transition-lifecycle regression to Luna. Host canonical navigation was reviewed separately and still requests the correct player view.
+## Exact-source deployment and live acceptance
 
-This is a remaining production defect, not an accepted audio-only result. Final rendered input/return/color acceptance must be repeated after the followup deployment.
+Personal server `111.228.35.186`: host release `5f08281c28c6742f69d60c1c1ea9d1070e29c513` and Folia `7069103b4ce862f0e1f8befde5c48dbe778777f4` are deployed. Clean source `/opt/folia/folia-major-main` used verified bundles and exact Git archives. The final build exited 0; npm ci ran, without a cache-hit claim. Running image `sha256:1d74dd2d4bee41abd9832a6698f7a4144efc814ca46057740e792b71b1c2b529` has the matching OCI revision. Gateway, external `/music/`, site entry and API health pass. Previous images/source stash/site snapshots remain retained; completed archive contexts were safely removed. Final free space was 731 MiB; future builds need a capacity check.
 
-## Rendered lifecycle followup validation
+Fresh signed-in Edge loaded **`index-Bvvt1XEq.js`** and **`main-rROf5Ust.js`**:
 
-`App` now uses `LatticePresenceLayer` with an explicit active opacity/interaction target and an inert exit target. `useLatticeExitGate` is the actual App gate also exercised by the integration fixture. A real Framer Motion test first failed with `expected 0 to be greater than 0.95`; after repair it verifies interrupted exit/reentry, an inert outgoing layer, complete exit mounting the player, and a second complete cycle. Root independently reran the previous affected suites plus `test/unit/latticePresenceLayer.integration.test.ts`: **37 files / 245 tests passed**. TypeScript, `/music/` production build and strict OpenSpec validation also passed. Final production acceptance remains required.
+1. Ordinary P1 A played; immersive entry preserved its position. Toolbar P2 purple replaced the full queue with 83 songs and started its first song.
+2. Wall B selection showed real lyrics. Play advanced and Pause held **00:46**. Custom `#3366ff` produced blue primary glyphs with separately colored translation.
+3. Actual held-pointer drag moved paused B **00:46 -> 03:09**, preserving pause. B player/Escape/wall, a second B player/Escape, then toolbar C displayed the real full player. Continuing keyboard pause worked. C Escape/toolbar D also showed the player and blue rendered glyphs; D Escape restored P2.
+4. Default-color reset removed the custom variable. Ordinary return displayed **purple, 83 songs, D and paused 01:34**. Current-song immersive reentry retained position and theme color.
+5. Native playlist navigation opened actual purple. Centering B's card and clicking Play handed off all 83 tracks at its selected slot. Pause/player entry worked; **Escape restored the actual native purple collection**. Ordinary return used `/music-library/queue`, showing purple/83/B paused. Internal Folia navigation did not mutate the host hash.
 
-## Current queue-entry consumer followup
+Root kept local before/after screenshots and left the acceptance tab available with playback paused and default color restored. Signed-in screenshots are not published in Git.
 
-Production `311b98d5` (`main-DgayMGhi.js`) passed repeated B/C/D player entry and Escape return, native continuing clicks/pause, and real held-pointer paused seek from 01:10 to 02:36. Ordinary return displayed the correct P2 `purple` playlist and all 83 tracks; reentering its current-song immersive player retained D's pause and position. However, the expanded current poster showed only its title fallback, with no ready lyric canvas despite ordinary lyrics being present. `buildLatticeTiles.id` had correctly adopted queueEntryId, while its lyric provider, focus, current poster geometry and transport consumers still compared playback-song keys.
+## Coverage limits
 
-All those consumers now use `getLatticeTileId`: a nonempty queueEntryId takes precedence, otherwise the standalone playback key remains valid. A real mounted Lattice test first reproduced a missing focus action, then separately reproduced the missing lyric consumer input. Its duplicate-song A/B slots verify exactly one current poster, renderer input B then A after switching current entry, current-slot toggle versus noncurrent-slot selection, and standalone fallback. Only the WebGL runtime boundary is substituted; the real Lattice/provider/lyrics consumer and transport/focus components are mounted.
-
-Root independently ran the previous 37 suites plus `test/unit/latticeQueueEntryIdentity.integration.test.ts`: **38 files / 246 tests passed**. TypeScript, `/music/` build, strict OpenSpec validation and source `git diff --check` passed. This followup requires owner-controlled publication, exact-source deployment and repeated real canvas/color acceptance before completion.
+This verifies the reproduced signed-in Edge/provider/desktop chain, not every device or arbitrary stream. Duplicate slots, stale async completion, empty/failing playlists, hidden input and standalone history are tested at mounted boundaries rather than forced against the live account. The original total freeze was not reproduced in every baseline run; route/return and the three observed rendered defects are separately evidenced. Host render acknowledgement remains optional as specified; message dispatch alone is never visual acceptance evidence.

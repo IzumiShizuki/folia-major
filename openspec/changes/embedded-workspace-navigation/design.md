@@ -20,6 +20,7 @@ See proposal.md and the host change `unify-folia-workspace-navigation`. The exte
 - Reproduce red at real bridge/navigation/queue-controller seams before implementation. Use mounted component/browser interaction for the full input symptom; mocked Pixi or message spies alone cannot prove it.
 - The actual Lattice presence boundary must restore opacity/interaction when an exit is interrupted and make its outgoing layer inert immediately. Share App's exit gate with a real Framer Motion lifecycle test so subsequent complete exits cannot strand the player behind a transparent layer.
 - Current Lattice entry identity uses a valid queueEntryId, with the original playback-song key as the standalone fallback. Lyrics, automatic focus, active poster geometry and transport controls must consume that same identity; duplicate-song slots must not both become current or share a lyric input merely because their song keys match.
+- The poster list has a separate non-propagating AnimatePresence. App's whole-wall exit must complete independently of virtualized poster removal; new auto-focus transforms and a large poster wave must not hold the player behind an exited wall. The regression mounts real Lattice and Framer Motion through three cycles without a timer fallback.
 
 ## Risks / Trade-offs
 

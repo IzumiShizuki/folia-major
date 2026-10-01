@@ -11,17 +11,19 @@
 - [x] 2.4 Preserve responsive pointer/keyboard behavior through selection, clock updates and reentry while retaining stable queue/context identity.
 - [x] 2.5 Repair the rendered Lattice exit/reentry lifecycle exposed by production acceptance; outgoing transparent layers must stop receiving pointer input and the player must become visible.
 - [x] 2.6 Align current-entry identity consumers in Lattice lyrics, focus and controls with queueEntryId; preserve independent-mode fallback and distinguish duplicate-song queue slots.
+- [x] 2.7 Isolate virtualized poster removal from the whole-wall exit, repairing the third-cycle completion failure exposed on production 9ed6ab22.
 
 ## 3. Validation
 
 - [x] 3.1 Run affected behavioral tests, standalone history regressions and existing controls/clock/lyric-color regressions.
 - [x] 3.2 Run type checking and production build; document established environment-only test limitations honestly.
 - [x] 3.4 Reproduce interrupted exit/reentry with real Framer Motion and verify complete repeated surface transitions.
-- [ ] 3.5 Add and pass mounted queue-entry/duplicate-slot regressions for lyric input and focus/controls, then repeat visual color and ordinary-return acceptance.
-- [ ] 3.3 Strictly validate OpenSpec and verify the host's synchronized source snapshots/public patch.
+- [x] 3.5 Add and pass mounted queue-entry/duplicate-slot regressions for lyric input and focus/controls, then repeat visual color and ordinary-return acceptance.
+- [x] 3.3 Strictly validate OpenSpec and verify the host's synchronized source snapshots/public patch.
+- [x] 3.6 Reproduce the real multi-cycle poster-wave exit failure, pass the mounted regression and repeat continuous production B reentry, toolbar C/D and Escape.
 
 ## 4. Authorized delivery
 
-- [ ] 4.1 Commit and push the verified fork change to the user-controlled remote.
-- [ ] 4.2 Coordinate joint clean-context deployment with the host and preserve rollback image/source identity.
-- [ ] 4.3 Verify continuing real input and current-playlist return on fresh production assets and commit the acceptance record.
+- [x] 4.1 Commit and push the verified fork change to the user-controlled remote.
+- [x] 4.2 Coordinate joint clean-context deployment with the host and preserve rollback image/source identity.
+- [x] 4.3 Verify continuing real input and current-playlist return on fresh production assets and commit the acceptance record.
