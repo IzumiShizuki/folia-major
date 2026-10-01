@@ -31,14 +31,20 @@ export function createLatticeLineView(pixi: Pixi, raster: LatticeRaster, parent:
     const matchers = prepareWordColorMatchers(input.theme.wordColors, input.keywordColoringEnabled);
     const colors = resolveTokenColorMap(layout.pieces.map(p => p.token), buildWordColorRangesFromMatchers(entry.line.fullText, matchers));
     const accent = chorus ? mixColors(input.theme.primaryColor, input.theme.accentColor, 0.48) : colorWithAlpha(input.theme.primaryColor, 0.98);
+    let embeddedLyricColor = input.embeddedLyricColor || '';
+    const resolvePieceColor = (piece: LyricPiece) => piece.translation
+        ? (input.subtitleTheme ?? input.theme).primaryColor
+        : embeddedLyricColor
+            ? colorWithAlpha(embeddedLyricColor, 0.98)
+            : colors.get(piece.token.key) ?? accent;
     const destroyPiece = (view: PieceView) => {
         view.sprite.destroy(); view.sweep.shader.destroy(); view.glow.forEach(sprite => sprite.destroy()); view.texture.destroy(true);
     };
     const createPiece = (piece: LyricPiece): PieceView => {
         const px = piece.translation ? type.translationPx : type.fontPx;
         const image = raster.rasterize(piece.text, piece.translation ? type.translationFont : type.font, px, resolution);
-        const color = piece.translation ? (input.subtitleTheme ?? input.theme).primaryColor : colors.get(piece.token.key) ?? accent;
-        const base = new pixi.Color(input.theme.primaryColor).toArray();
+        const color = resolvePieceColor(piece);
+        const base = new pixi.Color(!piece.translation && embeddedLyricColor ? embeddedLyricColor : input.theme.primaryColor).toArray();
         const sweep = createLatticeSweepShader(pixi, base, new pixi.Color(color).toArray(), image.texture);
         sweep.uniforms.uGlyphRange = [(image.pad - piece.tokenOffset) / image.width, (piece.offsets.at(-1) ?? piece.width) / image.width];
         const sprite = new pixi.Mesh({ geometry: quad, shader: sweep.shader, texture: image.texture });
@@ -48,6 +54,18 @@ export function createLatticeLineView(pixi: Pixi, raster: LatticeRaster, parent:
             const clone = new pixi.Sprite(image.texture); clone.position.copyFrom(sprite.position); layer.addChild(clone); return clone;
         });
         return { ...image, sprite, glow, sweep, piece, color, base };
+    };
+    const setEmbeddedLyricColor = (color: string) => {
+        if (embeddedLyricColor === color) return;
+        embeddedLyricColor = color;
+        for (const view of pieces.values()) {
+            if (view.piece.translation) continue;
+            view.color = resolvePieceColor(view.piece);
+            view.sweep.uniforms.uWord = new pixi.Color(view.color).toArray();
+            const base = new pixi.Color(embeddedLyricColor || input.theme.primaryColor).toArray();
+            view.base[0] = base[0]; view.base[1] = base[1]; view.base[2] = base[2];
+            view.sweep.uniforms.uBase = view.base;
+        }
     };
     const update = (time: number, status: MonetVisibleLineEntry['status'], baseAlpha: number, viewportHeight: number,
         top: number, scale: number, quiet: boolean) => {
@@ -93,7 +111,7 @@ export function createLatticeLineView(pixi: Pixi, raster: LatticeRaster, parent:
         }
         near.renderable = far.renderable = glowing;
     };
-    return { container, blur, layout, entry, update,
+    return { container, blur, layout, entry, update, setEmbeddedLyricColor,
         // quad.destroy(true) 连顶点 / 索引缓冲一起删；不传 true 时 Geometry 不动缓冲，要等 Pixi 的 GC 空闲 60 秒才删。
         destroy() { pieces.forEach(destroyPiece); pieces.clear(); blur.destroy(); glowFilters.forEach(f => f.destroy()); container.destroy({ children: true }); quad.destroy(true); },
     };

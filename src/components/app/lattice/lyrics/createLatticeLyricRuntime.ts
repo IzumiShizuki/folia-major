@@ -147,6 +147,7 @@ function attachRuntime(pixi: typeof import('pixi.js'), app: import('pixi.js').Ap
         setErrorHandler(handler) { reportError = handler; },
         update(next) {
             if (destroyed) return;
+            const embeddedLyricColorChanged = next.embeddedLyricColor !== input.embeddedLyricColor;
             const rebuild = next.songKey !== input.songKey || next.lines !== input.lines || next.theme !== input.theme
                 || next.subtitleTheme !== input.subtitleTheme || next.fontsEpoch !== input.fontsEpoch
                 || next.keywordColoringEnabled !== input.keywordColoringEnabled || next.showSubtitleTranslation !== input.showSubtitleTranslation
@@ -154,7 +155,11 @@ function attachRuntime(pixi: typeof import('pixi.js'), app: import('pixi.js').Ap
             if (next.currentTime !== input.currentTime) { unsubscribe(); unsubscribe = next.currentTime.on('change', loop.wake); }
             if (next.fontsEpoch !== input.fontsEpoch) { clearMonetMeasurementCaches(); raster.clearMeasureCache(); }
             input = next;
-            if (rebuild) { clear(); timeline = createLatticeTimeline(input.lines); typography = resolveLatticeTypography(input, width, height, raster.measure); }
+            if (rebuild) {
+                clear(); timeline = createLatticeTimeline(input.lines); typography = resolveLatticeTypography(input, width, height, raster.measure);
+            } else if (embeddedLyricColorChanged) {
+                tracks.forEach(track => track.view.setEmbeddedLyricColor(input.embeddedLyricColor || ''));
+            }
             loop.wake();
         },
         resize(w, h, devicePixelRatio) {

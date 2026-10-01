@@ -11,6 +11,8 @@ export type LatticeLyricInput = LatticeLyricSource & {
     keywordColoringEnabled: boolean;
     reducedMotion: boolean;
     fontsEpoch: number;
+    /** Set only by the same-document Shizuki embed bridge; standalone keeps the theme palette. */
+    embeddedLyricColor?: string;
 };
 
 export interface LatticeLyricRuntime {

@@ -152,6 +152,7 @@ function applyEmbedLyricColor(rawColor: unknown): void {
   if (!/^#[\da-f]{6}$/i.test(color)) {
     delete root.dataset.shizukiLyricColor;
     root.style.removeProperty('--shizuki-folia-lyric-color');
+    window.dispatchEvent(new CustomEvent('shizuki:lyric-color-change', { detail: { color: '' } }));
     return;
   }
 
@@ -169,6 +170,7 @@ function applyEmbedLyricColor(rawColor: unknown): void {
 
   root.dataset.shizukiLyricColor = 'custom';
   root.style.setProperty('--shizuki-folia-lyric-color', color);
+  window.dispatchEvent(new CustomEvent('shizuki:lyric-color-change', { detail: { color } }));
 }
 
 /**
