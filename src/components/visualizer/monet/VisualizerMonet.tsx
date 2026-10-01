@@ -224,9 +224,9 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
                                     animate={{ scaleY: 1 }}
                                     transition={{ duration: 1.5, ease: [0.25, 1, 0.5, 1], delay: 0.5 }}
                                     className="h-14 w-px rounded-full"
-                                    style={{ 
+                                    style={{
                                         originY: 0,
-                                        background: `linear-gradient(180deg, ${colorWithAlpha(theme.primaryColor, 0.72)}, transparent)` 
+                                        background: `linear-gradient(180deg, ${colorWithAlpha(theme.primaryColor, 0.72)}, transparent)`
                                     }}
                                 />
                             </div>
@@ -343,7 +343,7 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
                                 className="relative w-full"
                                 style={{ maxWidth: `clamp(210px, 26vw, ${portraitInnerMaxPx}px)` }}
                             >
-                                
+
                                 {/* Dashed movable region border */}
                                 {isEditingPosition && (
                                     <div
@@ -436,7 +436,7 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     if (isDraggingRef.current) return;
-                                                    
+
                                                     if (!isEditingPosition) {
                                                         setIsEditingPosition(true);
                                                     } else {
