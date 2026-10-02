@@ -10,6 +10,6 @@
 
 ## 3. Verify and deliver
 
-- [ ] 3.1 Pass affected bridge/visualizer regressions, TypeScript and the deployment build; strictly validate this change and review runtime guards.
-- [ ] 3.2 Commit/push only the owner's fork, refresh host public patch/snapshots and deploy the exact verified runtime with rollback retained.
-- [ ] 3.3 Verify actual mounted glyph color/reset and mode/reentry behavior on the signed-in site; record deployment identity and bounded acceptance results.
+- [x] 3.1 Pass affected bridge/visualizer regressions, TypeScript and the deployment build; strictly validate this change and review runtime guards.
+- [x] 3.2 Commit/push only the owner's fork, refresh host public patch/snapshots and deploy the exact verified runtime with rollback retained.
+- [x] 3.3 Verify actual mounted glyph color/reset and mode/reentry behavior on the signed-in site; record deployment identity and bounded acceptance results.
